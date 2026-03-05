@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import Header from '@/components/Header';
-import OrderBook from '@/components/OrderBook';
+import OrderBook, { PressureBar } from '@/components/OrderBook';
 import CandlestickChart from '@/components/CandlestickChart';
 import DepthChart from '@/components/DepthChart';
 import RecentTrades from '@/components/RecentTrades';
@@ -63,6 +63,13 @@ const Index: React.FC = () => {
     if (obStatus === 'disconnected' || tickerStatus === 'disconnected') return 'disconnected';
     return 'reconnecting';
   }, [obStatus, tickerStatus]);
+
+  const bidPressure = useMemo(() => {
+    const bidVol = bids.reduce((s, b) => s + b.size, 0);
+    const askVol = asks.reduce((s, a) => s + a.size, 0);
+    const total = bidVol + askVol;
+    return total > 0 ? (bidVol / total * 100) : 50;
+  }, [bids, asks]);
 
   const handleSymbolChange = useCallback((sym: string) => {
     setActiveSymbol(sym);
@@ -158,17 +165,6 @@ const Index: React.FC = () => {
         </div>
       </div>
 
-      {/* Mobile tabs - shown only on mobile via CSS */}
-      <div className="mobile-tabs" style={{
-        display: 'none', borderTop: '1px solid var(--border-subtle)',
-        background: 'var(--panel-bg)',
-      }}>
-        <MobileTab icon="📊" label="Book" active={mobileTab === 'book'} onClick={() => setMobileTab('book')} />
-        <MobileTab icon="📈" label="Chart" active={mobileTab === 'chart'} onClick={() => setMobileTab('chart')} />
-        <MobileTab icon="🌊" label="Depth" active={mobileTab === 'depth'} onClick={() => setMobileTab('depth')} />
-        <MobileTab icon="⚡" label="Trades" active={mobileTab === 'trades'} onClick={() => setMobileTab('trades')} />
-      </div>
-
       {/* Mobile content - shown only on mobile */}
       <div className="mobile-content" style={{ display: 'none', flex: 1, overflow: 'hidden' }}>
         {mobileTab === 'book' && (
@@ -186,11 +182,28 @@ const Index: React.FC = () => {
         )}
       </div>
 
+      {/* Mobile sticky pressure bar - always visible */}
+      <div className="mobile-pressure" style={{ display: 'none' }}>
+        <PressureBar bidPercent={bidPressure} />
+      </div>
+
+      {/* Mobile tabs - at bottom */}
+      <div className="mobile-tabs" style={{
+        display: 'none', borderTop: '1px solid var(--border-subtle)',
+        background: 'var(--panel-bg)',
+      }}>
+        <MobileTab icon="📊" label="Book" active={mobileTab === 'book'} onClick={() => setMobileTab('book')} />
+        <MobileTab icon="📈" label="Chart" active={mobileTab === 'chart'} onClick={() => setMobileTab('chart')} />
+        <MobileTab icon="🌊" label="Depth" active={mobileTab === 'depth'} onClick={() => setMobileTab('depth')} />
+        <MobileTab icon="⚡" label="Trades" active={mobileTab === 'trades'} onClick={() => setMobileTab('trades')} />
+      </div>
+
       <style>{`
         @media (max-width: 767px) {
           .desktop-layout { display: none !important; }
           .mobile-tabs { display: flex !important; }
           .mobile-content { display: flex !important; }
+          .mobile-pressure { display: block !important; }
         }
         @media (min-width: 768px) and (max-width: 1279px) {
           .desktop-layout > div:last-child { display: none !important; }
