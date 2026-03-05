@@ -19,8 +19,7 @@ import MarketData                 from '@/components/MarketData';
 import LiquidationFeed            from '@/components/LiquidationFeed';
 import ResizeHandle               from '@/components/ResizeHandle';
 import SymbolSearch               from '@/components/SymbolSearch';
-import LicenseModal, { ProLock }  from '@/components/LicenseGate';
-import { useProAccess }           from '@/hooks/useProAccess';
+
 
 import { useOrderBook }    from '@/hooks/useOrderBook';
 import { useTicker }       from '@/hooks/useTicker';
@@ -144,7 +143,6 @@ PanelHeader.displayName = 'PanelHeader';
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const Index: React.FC = () => {
-  const { isPro, unlock } = useProAccess();
   const [activeSymbol,  setActiveSymbol]  = useState('btcusdt');
   const [interval,      setIntervalState] = useState<Interval>('15m');
   const [precision,     setPrecision]     = useState<Precision>('0.01');
@@ -152,7 +150,6 @@ const Index: React.FC = () => {
   const [tabletBottom,  setTabletBottom]  = useState<TabletBottomTab>('depth');
   const [showMarkets,   setShowMarkets]   = useState(false);
   const [sidebarOpen,   setSidebarOpen]   = useState(true);
-  const [showProModal,  setShowProModal]  = useState(false);
   const prevMidRef = useRef<number | null>(null);
 
   const { pairs, loading: pairsLoading, error: pairsError } = useMarketPairs();
@@ -216,9 +213,6 @@ const Index: React.FC = () => {
   const handleOpenMarkets     = useCallback(() => setShowMarkets(true), []);
   const handleCloseMarkets    = useCallback(() => setShowMarkets(false), []);
   const handleToggleSidebar   = useCallback(() => setSidebarOpen((o) => !o), []);
-  const handleOpenProModal    = useCallback(() => setShowProModal(true), []);
-  const handleCloseProModal   = useCallback(() => setShowProModal(false), []);
-  const handleUnlock          = useCallback((key: string) => { unlock(key); setShowProModal(false); }, [unlock]);
 
   const P: React.CSSProperties = {
     background: 'rgba(16,19,28,1)',
@@ -245,28 +239,22 @@ const Index: React.FC = () => {
   );
 
   const depthPanel = (
-    <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="DEPTH CHART — PRO">
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(16,19,28,1)' }}>
-        <PanelHeader title="DEPTH CHART" />
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <DepthChart bids={bids} asks={asks} midPrice={midPrice} />
-        </div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(16,19,28,1)' }}>
+      <PanelHeader title="DEPTH CHART" />
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <DepthChart bids={bids} asks={asks} midPrice={midPrice} />
       </div>
-    </ProLock>
+    </div>
   );
 
   const tradesPanel = <RecentTrades trades={trades} />;
   const liqsPanel = (
-    <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="LIQUIDATION FEED — PRO">
-      <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />
-    </ProLock>
+    <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />
   );
   const marketDataPanel = (
-    <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="MARKET DATA — PRO">
-      <div style={{ ...P, overflowY: 'auto' }} className="hide-scrollbar">
-        <MarketData ticker={ticker} symbolInfo={symbolInfo} />
-      </div>
-    </ProLock>
+    <div style={{ ...P, overflowY: 'auto' }} className="hide-scrollbar">
+      <MarketData ticker={ticker} symbolInfo={symbolInfo} />
+    </div>
   );
 
   return (
@@ -488,14 +476,6 @@ const Index: React.FC = () => {
           activeSymbol={activeSymbol}
           onSelect={handleSymbolChange}
           onClose={handleCloseMarkets}
-        />
-      )}
-
-      {/* PRO License Modal */}
-      {showProModal && (
-        <LicenseModal
-          onUnlock={handleUnlock}
-          onClose={handleCloseProModal}
         />
       )}
 
