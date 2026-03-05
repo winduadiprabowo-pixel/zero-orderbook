@@ -1,30 +1,38 @@
 /**
- * Index.tsx — ZERØ ORDER BOOK v23
+ * Index.tsx — ZERØ ORDER BOOK v24
  * Layout: react-resizable-panels (Desktop) · fixed tabs (Tablet/Mobile)
- * Desktop: drag handles between Chart↔Book↔Trades, Chart↔Depth (vertical)
- * Tablet: fixed split Chart|Book top, tabbed bottom
- * Mobile: bottom nav 5 tabs, full safe-area support
+ * 500+ real Binance pairs via useMarketPairs.
+ * Smart precision per symbol. SymbolSearch modal.
+ * CTA → atbwr ✓ · rgba() only ✓ · mountedRef ✓ · RAF-gated ✓
  */
 
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { Panel, PanelGroup } from 'react-resizable-panels';
 
-import Header                   from '@/components/Header';
+import Header         from '@/components/Header';
 import OrderBook, { PressureBar } from '@/components/OrderBook';
-import TradingViewChart         from '@/components/TradingViewChart';
-import DepthChart               from '@/components/DepthChart';
-import RecentTrades             from '@/components/RecentTrades';
-import MarketData               from '@/components/MarketData';
-import LiquidationFeed          from '@/components/LiquidationFeed';
-import ResizeHandle             from '@/components/ResizeHandle';
+import TradingViewChart           from '@/components/TradingViewChart';
+import DepthChart                 from '@/components/DepthChart';
+import RecentTrades               from '@/components/RecentTrades';
+import MarketData                 from '@/components/MarketData';
+import LiquidationFeed            from '@/components/LiquidationFeed';
+import ResizeHandle               from '@/components/ResizeHandle';
+import SymbolSearch               from '@/components/SymbolSearch';
 
 import { useOrderBook }    from '@/hooks/useOrderBook';
 import { useTicker }       from '@/hooks/useTicker';
 import { useTrades }       from '@/hooks/useTrades';
 import { useLiquidations } from '@/hooks/useLiquidations';
 import { useGlobalStats }  from '@/hooks/useGlobalStats';
+import { useMarketPairs }  from '@/hooks/useMarketPairs';
 
-import { SYMBOLS, type Interval, type Precision, type ConnectionStatus } from '@/types/market';
+import {
+  PINNED_SYMBOLS,
+  getSmartPriceDec,
+  type Interval,
+  type Precision,
+  type ConnectionStatus,
+} from '@/types/market';
 
 // ─── Mobile tab config ────────────────────────────────────────────────────────
 
@@ -37,8 +45,6 @@ const MOBILE_TABS: { id: MobileTab; label: string; icon: string }[] = [
   { id: 'trades', label: 'TRADES', icon: '⚡' },
   { id: 'liqs',   label: 'LIQS',   icon: '💀' },
 ];
-
-// ─── Tablet bottom tab config ─────────────────────────────────────────────────
 
 type TabletBottomTab = 'depth' | 'stats' | 'liqs';
 const TABLET_BOTTOM_TABS: { id: TabletBottomTab; label: string }[] = [
@@ -62,8 +68,8 @@ const MobileTabBtn: React.FC<{
       border: 'none', cursor: 'pointer',
       fontFamily: 'inherit', minHeight: '54px',
       background:  active ? 'rgba(255,255,255,0.05)' : 'transparent',
-      color:       active ? 'var(--text-primary)'    : 'var(--text-muted)',
-      borderTop:   active ? '2px solid var(--gold)'  : '2px solid transparent',
+      color:       active ? 'rgba(255,255,255,0.92)'  : 'rgba(255,255,255,0.28)',
+      borderTop:   active ? '2px solid rgba(242,142,44,1)' : '2px solid transparent',
       fontSize: '8px', fontWeight: 700,
       textTransform: 'uppercase', letterSpacing: '0.07em',
       transition: 'color 120ms, background 120ms',
@@ -84,9 +90,9 @@ const ConnectionBanner: React.FC<{ status: ConnectionStatus; onRetry: () => void
       <div style={{
         display: 'flex', alignItems: 'center', gap: '8px',
         padding: '5px 16px', flexShrink: 0,
-        background:   isReconn ? 'rgba(242,142,44,0.07)'  : 'rgba(239,83,80,0.07)',
+        background:   isReconn ? 'rgba(242,142,44,0.07)' : 'rgba(239,83,80,0.07)',
         borderBottom: `1px solid ${isReconn ? 'rgba(242,142,44,0.14)' : 'rgba(239,83,80,0.14)'}`,
-        color:        isReconn ? 'var(--gold)'             : 'var(--ask-color)',
+        color:        isReconn ? 'rgba(242,142,44,1)'    : 'rgba(239,83,80,1)',
         fontSize: '10px', fontWeight: 700,
       }}>
         <div className="live-dot" style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'currentColor', flexShrink: 0 }} />
@@ -94,8 +100,8 @@ const ConnectionBanner: React.FC<{ status: ConnectionStatus; onRetry: () => void
         {!isReconn && (
           <button onClick={onRetry} style={{
             marginLeft: '4px', padding: '2px 10px',
-            border: '1px solid var(--ask-color)', borderRadius: '2px',
-            background: 'transparent', color: 'var(--ask-color)',
+            border: '1px solid rgba(239,83,80,1)', borderRadius: '2px',
+            background: 'transparent', color: 'rgba(239,83,80,1)',
             cursor: 'pointer', fontFamily: 'inherit', fontSize: '9px', fontWeight: 700,
           }}>Retry</button>
         )}
@@ -108,14 +114,24 @@ ConnectionBanner.displayName = 'ConnectionBanner';
 const PanelHeader: React.FC<{ title: string; right?: React.ReactNode }> = React.memo(({ title, right }) => (
   <div style={{
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '6px 12px', borderBottom: '1px solid var(--border-subtle)',
-    background: 'var(--panel-bg)', flexShrink: 0,
+    padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+    background: 'rgba(16,19,28,1)', flexShrink: 0,
   }}>
     <span className="label-sm">{title}</span>
     {right}
   </div>
 ));
 PanelHeader.displayName = 'PanelHeader';
+
+// ─── Precision options per price magnitude ────────────────────────────────────
+
+function getPrecisionOptions(priceDec: number): Precision[] {
+  if (priceDec >= 7) return ['0.00000001', '0.0000001', '0.000001'];
+  if (priceDec >= 5) return ['0.000001', '0.00001', '0.0001'];
+  if (priceDec >= 3) return ['0.001', '0.0001', '0.00001'];
+  if (priceDec >= 1) return ['0.1', '0.01', '0.001'];
+  return ['0.1', '0.01', '0.001'];
+}
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -125,9 +141,17 @@ const Index: React.FC = () => {
   const [precision,     setPrecision]     = useState<Precision>('0.01');
   const [mobileTab,     setMobileTab]     = useState<MobileTab>('chart');
   const [tabletBottom,  setTabletBottom]  = useState<TabletBottomTab>('depth');
+  const [showMarkets,   setShowMarkets]   = useState(false);
   const prevMidRef = useRef<number | null>(null);
 
-  const symbolInfo = useMemo(() => SYMBOLS.find((s) => s.symbol === activeSymbol)!, [activeSymbol]);
+  // 500+ live pairs
+  const { pairs, loading: pairsLoading, error: pairsError } = useMarketPairs();
+
+  // Find current symbol info (from 500+ list or fallback to pinned)
+  const symbolInfo = useMemo(() => {
+    const found = pairs.find((s) => s.symbol === activeSymbol);
+    return found ?? PINNED_SYMBOLS.find((s) => s.symbol === activeSymbol) ?? PINNED_SYMBOLS[0];
+  }, [pairs, activeSymbol]);
 
   const { bids, asks, status: obStatus, lastUpdate, retry: obRetry } = useOrderBook(activeSymbol);
   const { ticker, status: tickerStatus }                              = useTicker(activeSymbol);
@@ -146,6 +170,14 @@ const Index: React.FC = () => {
     return prev;
   }, [midPrice]);
 
+  // Auto-adjust precision when symbol changes
+  const activePriceDec = useMemo(() => {
+    if (ticker?.lastPrice) return getSmartPriceDec(ticker.lastPrice);
+    return symbolInfo.priceDec ?? 2;
+  }, [ticker?.lastPrice, symbolInfo.priceDec]);
+
+  const precisionOptions = useMemo(() => getPrecisionOptions(activePriceDec), [activePriceDec]);
+
   const overallStatus: ConnectionStatus = useMemo(() => {
     if (obStatus === 'connected' && tickerStatus === 'connected') return 'connected';
     if (obStatus === 'disconnected' || tickerStatus === 'disconnected') return 'disconnected';
@@ -159,23 +191,30 @@ const Index: React.FC = () => {
     return t > 0 ? (bv / t) * 100 : 50;
   }, [bids, asks]);
 
-  const handleSymbolChange    = useCallback((sym: string) => { setActiveSymbol(sym); prevMidRef.current = null; }, []);
+  const handleSymbolChange = useCallback((sym: string) => {
+    setActiveSymbol(sym);
+    prevMidRef.current = null;
+    // Auto-set precision for new symbol
+    const found = pairs.find((p) => p.symbol === sym);
+    if (found) {
+      const opts = getPrecisionOptions(found.priceDec);
+      setPrecision(opts[1] ?? '0.01');
+    }
+  }, [pairs]);
+
   const handleIntervalChange  = useCallback((i: Interval) => setIntervalState(i), []);
   const handlePrecisionChange = useCallback((p: Precision) => setPrecision(p), []);
+  const handleOpenMarkets     = useCallback(() => setShowMarkets(true), []);
+  const handleCloseMarkets    = useCallback(() => setShowMarkets(false), []);
 
   const P: React.CSSProperties = {
-    background: 'var(--panel-bg)',
+    background: 'rgba(16,19,28,1)',
     display: 'flex', flexDirection: 'column',
-    overflow: 'hidden',
-    height: '100%',
+    overflow: 'hidden', height: '100%',
   };
 
   const chartPanel = (
-    <TradingViewChart
-      symbol={activeSymbol}
-      interval={interval}
-      onIntervalChange={handleIntervalChange}
-    />
+    <TradingViewChart symbol={activeSymbol} interval={interval} onIntervalChange={handleIntervalChange} />
   );
 
   const orderBookPanel = (levels: number) => (
@@ -183,12 +222,13 @@ const Index: React.FC = () => {
       bids={bids} asks={asks}
       midPrice={midPrice} prevMidPrice={prevMidPrice}
       precision={precision} onPrecisionChange={handlePrecisionChange}
+      precisionOptions={precisionOptions}
       levels={levels}
     />
   );
 
   const depthPanel = (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--panel-bg)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(16,19,28,1)' }}>
       <PanelHeader title="DEPTH CHART" />
       <div style={{ flex: 1, minHeight: 0 }}>
         <DepthChart bids={bids} asks={asks} midPrice={midPrice} />
@@ -196,8 +236,8 @@ const Index: React.FC = () => {
     </div>
   );
 
-  const tradesPanel = <RecentTrades trades={trades} />;
-  const liqsPanel   = <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />;
+  const tradesPanel     = <RecentTrades trades={trades} />;
+  const liqsPanel       = <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />;
   const marketDataPanel = (
     <div style={{ ...P, overflowY: 'auto' }} className="hide-scrollbar">
       <MarketData ticker={ticker} symbolInfo={symbolInfo} />
@@ -209,31 +249,27 @@ const Index: React.FC = () => {
       className="scanline-overlay"
       style={{
         display: 'flex', flexDirection: 'column',
-        height: '100dvh', background: 'var(--app-bg)',
+        height: '100dvh', background: 'rgba(13,16,23,1)',
         overflow: 'hidden',
       }}
     >
       <Header
-        symbols={SYMBOLS}
+        symbols={PINNED_SYMBOLS}
         activeSymbol={activeSymbol}
         onSymbolChange={handleSymbolChange}
+        onOpenMarkets={handleOpenMarkets}
         status={overallStatus}
         lastUpdate={lastUpdate}
         ticker={ticker}
         globalStats={globalStats}
+        marketPairsCount={pairs.length}
       />
       <ConnectionBanner status={overallStatus} onRetry={obRetry} />
 
-      {/* ════════════════════════════════════════
-          DESKTOP ≥1280px  — resizable panels
-          ════════════════════════════════════════ */}
+      {/* ════════════════════════════════ DESKTOP ≥1280px ════════════════════════════════ */}
       <div className="layout-desktop" style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-        <PanelGroup
-          direction="horizontal"
-          autoSaveId="zero-ob-h"
-          style={{ height: '100%' }}
-        >
-          {/* LEFT: chart + depth stacked vertically */}
+        <PanelGroup direction="horizontal" autoSaveId="zero-ob-h" style={{ height: '100%' }}>
+          {/* LEFT: chart + depth stacked */}
           <Panel id="left" defaultSize={62} minSize={35} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <PanelGroup direction="vertical" autoSaveId="zero-ob-v-left" style={{ height: '100%' }}>
               <Panel id="chart" defaultSize={65} minSize={35} style={{ overflow: 'hidden' }}>
@@ -255,7 +291,7 @@ const Index: React.FC = () => {
 
           <ResizeHandle direction="horizontal" id="h-right" />
 
-          {/* RIGHT: Trades + Liqs stacked */}
+          {/* RIGHT: Trades + Liqs */}
           <Panel id="right" defaultSize={20} minSize={13} maxSize={32} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <PanelGroup direction="vertical" autoSaveId="zero-ob-v-right" style={{ height: '100%' }}>
               <Panel id="trades" defaultSize={48} minSize={25} style={{ overflow: 'hidden' }}>
@@ -272,18 +308,15 @@ const Index: React.FC = () => {
 
           {/* FAR RIGHT: Market Data — collapsible */}
           <Panel id="mktdata" defaultSize={0} minSize={0} maxSize={22} collapsible collapsedSize={0} style={{ overflow: 'hidden' }}>
-            <div style={{ ...P, borderLeft: '1px solid var(--border-subtle)' }}>
+            <div style={{ ...P, borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
               {marketDataPanel}
             </div>
           </Panel>
         </PanelGroup>
       </div>
 
-      {/* ════════════════════════════════════════
-          TABLET 768–1279px
-          ════════════════════════════════════════ */}
+      {/* ════════════════════════════════ TABLET 768–1279px ════════════════════════════════ */}
       <div className="layout-tablet" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-        {/* Top: Chart | Book */}
         <div style={{ flex: '0 0 58%', minHeight: 0, overflow: 'hidden' }}>
           <PanelGroup direction="horizontal" autoSaveId="zero-ob-tablet-h" style={{ height: '100%' }}>
             <Panel id="t-chart" defaultSize={64} minSize={40} style={{ overflow: 'hidden' }}>
@@ -295,10 +328,8 @@ const Index: React.FC = () => {
             </Panel>
           </PanelGroup>
         </div>
-
-        {/* Bottom: tabbed */}
-        <div style={{ flex: '0 0 42%', display: 'flex', flexDirection: 'column', minHeight: 0, borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', background: 'var(--panel-bg)', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+        <div style={{ flex: '0 0 42%', display: 'flex', flexDirection: 'column', minHeight: 0, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ display: 'flex', background: 'rgba(16,19,28,1)', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
             {TABLET_BOTTOM_TABS.map((t) => (
               <button
                 key={t.id}
@@ -308,8 +339,8 @@ const Index: React.FC = () => {
                   fontFamily: 'inherit', fontSize: '9px', fontWeight: 700,
                   letterSpacing: '0.08em', textTransform: 'uppercase',
                   background: 'transparent',
-                  color: tabletBottom === t.id ? 'var(--text-primary)' : 'var(--text-muted)',
-                  borderBottom: tabletBottom === t.id ? '2px solid var(--gold)' : '2px solid transparent',
+                  color: tabletBottom === t.id ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.28)',
+                  borderBottom: tabletBottom === t.id ? '2px solid rgba(242,142,44,1)' : '2px solid transparent',
                   transition: 'all 120ms',
                   WebkitTapHighlightColor: 'transparent',
                 }}
@@ -318,7 +349,7 @@ const Index: React.FC = () => {
           </div>
           <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {tabletBottom === 'depth' && (
-              <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--panel-bg)' }}>
+              <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'rgba(16,19,28,1)' }}>
                 <div style={{ flex: 1, minHeight: 0 }}>
                   <DepthChart bids={bids} asks={asks} midPrice={midPrice} />
                 </div>
@@ -337,21 +368,19 @@ const Index: React.FC = () => {
                 </Panel>
               </PanelGroup>
             )}
-            {tabletBottom === 'liqs' && (
-              <div style={{ height: '100%' }}>{liqsPanel}</div>
-            )}
+            {tabletBottom === 'liqs' && <div style={{ height: '100%' }}>{liqsPanel}</div>}
           </div>
         </div>
       </div>
 
-      {/* ════════════════════════════════════════
-          MOBILE <768px
-          ════════════════════════════════════════ */}
+      {/* ════════════════════════════════ MOBILE <768px ════════════════════════════════ */}
       <div className="layout-mobile" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'chart'  ? 'flex' : 'none', flexDirection: 'column' }}>{chartPanel}</div>
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'book'   ? 'flex' : 'none', flexDirection: 'column' }}>
-            <OrderBook bids={bids} asks={asks} midPrice={midPrice} prevMidPrice={prevMidPrice} precision={precision} onPrecisionChange={handlePrecisionChange} compact levels={20} />
+            <OrderBook bids={bids} asks={asks} midPrice={midPrice} prevMidPrice={prevMidPrice}
+              precision={precision} onPrecisionChange={handlePrecisionChange}
+              precisionOptions={precisionOptions} compact levels={20} />
           </div>
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'depth'  ? 'flex' : 'none', flexDirection: 'column' }}>
             <PanelHeader title="DEPTH CHART" />
@@ -365,8 +394,8 @@ const Index: React.FC = () => {
 
         <div style={{
           display: 'flex',
-          borderTop: '1px solid var(--border-subtle)',
-          background: 'var(--panel-bg)',
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+          background: 'rgba(16,19,28,1)',
           paddingBottom: 'env(safe-area-inset-bottom)',
           flexShrink: 0,
         }}>
@@ -375,6 +404,18 @@ const Index: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* ════ Symbol Search Modal ════ */}
+      {showMarkets && (
+        <SymbolSearch
+          pairs={pairs}
+          loading={pairsLoading}
+          error={pairsError}
+          activeSymbol={activeSymbol}
+          onSelect={handleSymbolChange}
+          onClose={handleCloseMarkets}
+        />
+      )}
 
       <style>{`
         .layout-desktop { display: flex; }
