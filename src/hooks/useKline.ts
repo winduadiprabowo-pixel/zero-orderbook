@@ -1,43 +1,45 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useBinanceWs } from './useBinanceWs';
 import type { KlineData, ConnectionStatus, Interval } from '@/types/market';
 
 export function useKline(symbol: string, interval: Interval) {
   const [candles, setCandles] = useState<KlineData[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
-  const initialLoadRef = useRef(false);
+  const prevSymRef = useRef(symbol);
+  const prevIntvRef = useRef(interval);
 
   // Fetch historical candles on symbol/interval change
-  const fetchHistory = useCallback(async (sym: string, intv: Interval) => {
+  useEffect(() => {
     const controller = new AbortController();
-    try {
-      const res = await fetch(
-        `https://api.binance.com/api/v3/klines?symbol=${sym.toUpperCase()}&interval=${intv}&limit=200`,
-        { signal: controller.signal }
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      const klines: KlineData[] = data.map((k: unknown[]) => ({
-        time: (k[0] as number) / 1000,
-        open: parseFloat(k[1] as string),
-        high: parseFloat(k[2] as string),
-        low: parseFloat(k[3] as string),
-        close: parseFloat(k[4] as string),
-        volume: parseFloat(k[5] as string),
-      }));
-      setCandles(klines);
-      initialLoadRef.current = true;
-    } catch {
-      // ignore
-    }
-    return () => controller.abort();
-  }, []);
+    setCandles([]);
 
-  // Reset on symbol/interval change
-  useState(() => {
-    initialLoadRef.current = false;
-    fetchHistory(symbol, interval);
-  });
+    (async () => {
+      try {
+        const res = await fetch(
+          `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=200`,
+          { signal: controller.signal }
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const klines: KlineData[] = data.map((k: unknown[]) => ({
+          time: (k[0] as number) / 1000,
+          open: parseFloat(k[1] as string),
+          high: parseFloat(k[2] as string),
+          low: parseFloat(k[3] as string),
+          close: parseFloat(k[4] as string),
+          volume: parseFloat(k[5] as string),
+        }));
+        setCandles(klines);
+      } catch {
+        // ignore
+      }
+    })();
+
+    prevSymRef.current = symbol;
+    prevIntvRef.current = interval;
+
+    return () => controller.abort();
+  }, [symbol, interval]);
 
   const handleMessage = useCallback((data: unknown) => {
     const d = data as { k: { t: number; o: string; h: string; l: string; c: string; v: string; x: boolean } };
@@ -66,5 +68,5 @@ export function useKline(symbol: string, interval: Interval) {
     onStatusChange: setStatus,
   });
 
-  return { candles, status, retry, fetchHistory };
+  return { candles, status, retry };
 }
