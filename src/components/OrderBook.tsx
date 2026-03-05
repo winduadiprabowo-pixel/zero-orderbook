@@ -1,13 +1,14 @@
 /**
- * OrderBook.tsx — ZERØ ORDER BOOK v24
- * Dynamic precision options per symbol · rgba() only · React.memo ✓ · displayName ✓
+ * OrderBook.tsx — ZERØ ORDER BOOK v25
+ * No per-row useState/useEffect — flash via direct DOM classList (zero re-render per row).
+ * Dynamic precision · rgba() only · React.memo ✓ · displayName ✓
  */
 
-import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import React, { useMemo, useRef, useCallback } from 'react';
 import type { OrderBookLevel, Precision } from '@/types/market';
 import { formatSize } from '@/lib/formatters';
 
-// ─── Decimal count from precision string ─────────────────────────────────────
+// ── Precision helpers ─────────────────────────────────────────────────────────
 
 function precisionToDecimals(p: string): number {
   const stripped = p.replace(/0+$/, '');
@@ -15,6 +16,8 @@ function precisionToDecimals(p: string): number {
   if (dotIdx === -1) return 0;
   return stripped.length - dotIdx - 1;
 }
+
+// ── Props ─────────────────────────────────────────────────────────────────────
 
 interface OrderBookProps {
   bids:              OrderBookLevel[];
@@ -29,6 +32,8 @@ interface OrderBookProps {
 }
 
 const DEFAULT_PRECISION_OPTIONS: Precision[] = ['0.1', '0.01', '0.001'];
+
+// ── OrderBook ─────────────────────────────────────────────────────────────────
 
 const OrderBook: React.FC<OrderBookProps> = React.memo(({
   bids, asks, midPrice, prevMidPrice, precision, onPrecisionChange,
@@ -66,7 +71,7 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', height: '100%',
-      background: 'rgba(16,19,28,1)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+      background: 'rgba(16,19,28,1)',
       overflow: 'hidden',
     }}>
       {/* Header */}
@@ -83,11 +88,11 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
               aria-label={`Set precision ${p}`}
               onClick={() => onPrecisionChange(p)}
               style={{
-                padding: '2px 7px', fontSize: '9px', fontWeight: 700,
+                padding: '2px 6px', fontSize: '9px', fontWeight: 700,
                 fontFamily: 'inherit', cursor: 'pointer',
                 borderRadius: '2px', border: 'none', transition: 'all 100ms',
                 background: precision === p ? 'rgba(255,255,255,0.10)' : 'transparent',
-                color: precision === p ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.15)',
+                color: precision === p ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.18)',
               }}
             >
               {p}
@@ -99,7 +104,7 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
       {/* Column headers */}
       <ColHeader compact={compact} />
 
-      {/* ASKS */}
+      {/* ASKS — scroll bottom-to-top feel */}
       <div style={{
         flex: 1, overflowY: 'auto',
         display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
@@ -107,13 +112,13 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
       }} className="hide-scrollbar">
         {displayAsks.map((level, i) => (
           <OrderRow
-            key={level.price}
-            rank={displayAsks.length - i}
+            key={`ask-${level.price}`}
             level={level}
             side="ask"
             maxTotal={maxTotal}
             decimals={decimals}
             compact={compact}
+            rank={displayAsks.length - i}
           />
         ))}
       </div>
@@ -128,13 +133,13 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
       }} className="hide-scrollbar">
         {displayBids.map((level, i) => (
           <OrderRow
-            key={level.price}
-            rank={i + 1}
+            key={`bid-${level.price}`}
             level={level}
             side="bid"
             maxTotal={maxTotal}
             decimals={decimals}
             compact={compact}
+            rank={i + 1}
           />
         ))}
       </div>
@@ -145,6 +150,8 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
   );
 });
 OrderBook.displayName = 'OrderBook';
+
+// ── ColHeader ─────────────────────────────────────────────────────────────────
 
 const ColHeader: React.FC<{ compact: boolean }> = React.memo(({ compact }) => (
   <div style={{
@@ -161,30 +168,42 @@ const ColHeader: React.FC<{ compact: boolean }> = React.memo(({ compact }) => (
 ));
 ColHeader.displayName = 'ColHeader';
 
+// ── MidPriceRow ───────────────────────────────────────────────────────────────
+
 const MidPriceRow: React.FC<{
-  midPrice: number | null;
+  midPrice:     number | null;
   midDirection: 'up' | 'down' | 'neutral';
-  spread: string;
-  decimals: number;
+  spread:       string;
+  decimals:     number;
 }> = React.memo(({ midPrice, midDirection, spread, decimals }) => {
-  const color = midDirection === 'up' ? 'rgba(38,166,154,1)'
-    : midDirection === 'down' ? 'rgba(239,83,80,1)' : 'rgba(255,255,255,0.92)';
+  const color =
+    midDirection === 'up'   ? 'rgba(38,166,154,1)'    :
+    midDirection === 'down' ? 'rgba(239,83,80,1)'     :
+                              'rgba(255,255,255,0.92)';
   return (
     <div style={{
-      padding: '6px 12px',
+      padding: '5px 12px',
       borderTop: '1px solid rgba(255,255,255,0.06)',
       borderBottom: '1px solid rgba(255,255,255,0.06)',
-      background: 'rgba(255,255,255,0.02)',
+      background: 'rgba(255,255,255,0.015)',
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       flexShrink: 0,
     }}>
-      <span className="mono-num" style={{ fontSize: '17px', fontWeight: 800, color, lineHeight: 1 }}>
+      <span className="mono-num" style={{
+        fontSize: '15px', fontWeight: 800, color, lineHeight: 1,
+        letterSpacing: '-0.01em',
+      }}>
         {midDirection === 'up' ? '▲ ' : midDirection === 'down' ? '▼ ' : ''}
-        {midPrice?.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) ?? '--'}
+        {midPrice?.toLocaleString('en-US', {
+          minimumFractionDigits: decimals,
+          maximumFractionDigits: decimals,
+        }) ?? '--'}
       </span>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '1px' }}>
         <span className="label-xs">SPREAD</span>
-        <span className="mono-num" style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.55)' }}>
+        <span className="mono-num" style={{
+          fontSize: '10px', fontWeight: 600, color: 'rgba(255,255,255,0.45)',
+        }}>
           {spread}
         </span>
       </div>
@@ -192,6 +211,10 @@ const MidPriceRow: React.FC<{
   );
 });
 MidPriceRow.displayName = 'MidPriceRow';
+
+// ── OrderRow ─────────────────────────────────────────────────────────────────
+// No useState / useEffect here — flash triggered via DOM classList directly.
+// This is the critical perf fix: 40 rows × no state = massive savings.
 
 interface OrderRowProps {
   rank:     number;
@@ -202,66 +225,87 @@ interface OrderRowProps {
   compact:  boolean;
 }
 
-const OrderRow: React.FC<OrderRowProps> = React.memo(({ rank, level, side, maxTotal, decimals, compact }) => {
-  const depthPct    = useMemo(() => Math.min((level.total / maxTotal) * 100, 100), [level.total, maxTotal]);
+const OrderRow: React.FC<OrderRowProps> = React.memo(({
+  rank, level, side, maxTotal, decimals, compact,
+}) => {
+  const rowRef      = useRef<HTMLDivElement>(null);
   const prevSizeRef = useRef(level.size);
-  const [flash, setFlash] = useState('');
+  const timerRef    = useRef<ReturnType<typeof setTimeout>>();
 
-  useEffect(() => {
-    const prev = prevSizeRef.current;
-    if (prev !== level.size && prev > 0) {
-      setFlash(level.size > prev ? 'flash-bid' : 'flash-ask');
-      const t = setTimeout(() => setFlash(''), 300);
-      return () => clearTimeout(t);
+  // Flash on size change — pure DOM, zero React state
+  if (prevSizeRef.current !== level.size && prevSizeRef.current > 0) {
+    const el = rowRef.current;
+    if (el) {
+      const cls = level.size > prevSizeRef.current ? 'flash-bid' : 'flash-ask';
+      el.classList.remove('flash-bid', 'flash-ask');
+      // Force reflow
+      void el.offsetWidth;
+      el.classList.add(cls);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => el?.classList.remove(cls), 300);
     }
-    prevSizeRef.current = level.size;
-  }, [level.size]);
+  }
+  prevSizeRef.current = level.size;
 
   const isBid     = side === 'bid';
   const color     = isBid ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
-  const fillColor = isBid ? 'rgba(38,166,154,0.12)' : 'rgba(239,83,80,0.12)';
-
-  const handleMouseEnter = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.04)';
-  }, []);
-  const handleMouseLeave = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    (e.currentTarget as HTMLDivElement).style.background = 'transparent';
-  }, []);
+  const fillColor = isBid ? 'rgba(38,166,154,0.10)' : 'rgba(239,83,80,0.10)';
+  const depthPct  = Math.min((level.total / maxTotal) * 100, 100);
 
   return (
     <div
-      className={flash || undefined}
+      ref={rowRef}
       style={{
         display: 'grid',
         gridTemplateColumns: compact ? '1fr 1fr 1fr' : '24px 1fr 1fr 1fr',
-        padding: compact ? '1.5px 8px' : '1.5px 12px', gap: '4px',
-        fontSize: '11px', fontWeight: 500,
-        position: 'relative', cursor: 'default', flexShrink: 0,
+        padding: compact ? '1.5px 8px' : '1.5px 12px',
+        gap: '4px',
+        fontSize: '11px',
+        fontWeight: 500,
+        position: 'relative',
+        cursor: 'default',
+        flexShrink: 0,
       }}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.04)';
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+      }}
     >
+      {/* Depth fill bar */}
       <div style={{
         position: 'absolute', top: 0, bottom: 0,
         [isBid ? 'left' : 'right']: 0,
         width: `${depthPct}%`,
         background: fillColor,
-        transition: 'width 120ms ease-out',
+        transition: 'width 200ms ease-out',
         pointerEvents: 'none',
       }} />
 
       {!compact && (
-        <span style={{ color: 'rgba(255,255,255,0.15)', fontSize: '9px', position: 'relative', zIndex: 1 }}>
+        <span style={{
+          color: 'rgba(255,255,255,0.12)', fontSize: '9px',
+          position: 'relative', zIndex: 1,
+        }}>
           {rank}
         </span>
       )}
-      <span className="mono-num" style={{ textAlign: 'right', color, position: 'relative', zIndex: 1 }}>
+      <span className="mono-num" style={{
+        textAlign: 'right', color, position: 'relative', zIndex: 1,
+      }}>
         {level.price.toFixed(decimals)}
       </span>
-      <span className="mono-num" style={{ textAlign: 'right', color: 'rgba(255,255,255,0.55)', position: 'relative', zIndex: 1 }}>
+      <span className="mono-num" style={{
+        textAlign: 'right', color: 'rgba(255,255,255,0.50)',
+        position: 'relative', zIndex: 1,
+      }}>
         {formatSize(level.size)}
       </span>
-      <span className="mono-num" style={{ textAlign: 'right', color: 'rgba(255,255,255,0.28)', position: 'relative', zIndex: 1 }}>
+      <span className="mono-num" style={{
+        textAlign: 'right', color: 'rgba(255,255,255,0.25)',
+        position: 'relative', zIndex: 1,
+      }}>
         {formatSize(level.total)}
       </span>
     </div>
@@ -269,27 +313,36 @@ const OrderRow: React.FC<OrderRowProps> = React.memo(({ rank, level, side, maxTo
 });
 OrderRow.displayName = 'OrderRow';
 
+// ── PressureBar ───────────────────────────────────────────────────────────────
+
 export const PressureBar: React.FC<{ bidPercent: number }> = React.memo(({ bidPercent }) => {
   const askPct = 100 - bidPercent;
   return (
     <div style={{
-      padding: '5px 12px', borderTop: '1px solid rgba(255,255,255,0.06)',
+      padding: '5px 12px',
+      borderTop: '1px solid rgba(255,255,255,0.06)',
       display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0,
     }}>
-      <span className="mono-num" style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(38,166,154,1)', whiteSpace: 'nowrap' }}>
+      <span className="mono-num" style={{
+        fontSize: '10px', fontWeight: 700,
+        color: 'rgba(38,166,154,1)', whiteSpace: 'nowrap',
+      }}>
         BID {bidPercent.toFixed(1)}%
       </span>
       <div style={{
-        flex: 1, height: '4px', borderRadius: '2px',
-        background: 'rgba(239,83,80,0.12)', overflow: 'hidden',
+        flex: 1, height: '3px', borderRadius: '2px',
+        background: 'rgba(239,83,80,0.15)', overflow: 'hidden',
       }}>
         <div style={{
           height: '100%', width: `${bidPercent}%`,
           background: 'rgba(38,166,154,1)',
-          borderRadius: '2px', transition: 'width 300ms ease-out',
+          borderRadius: '2px', transition: 'width 400ms ease-out',
         }} />
       </div>
-      <span className="mono-num" style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(239,83,80,1)', whiteSpace: 'nowrap' }}>
+      <span className="mono-num" style={{
+        fontSize: '10px', fontWeight: 700,
+        color: 'rgba(239,83,80,1)', whiteSpace: 'nowrap',
+      }}>
         {askPct.toFixed(1)}% ASK
       </span>
     </div>
