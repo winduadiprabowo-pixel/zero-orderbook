@@ -7,18 +7,16 @@ export function useTicker(symbol: string) {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
 
   const handleMessage = useCallback((data: unknown) => {
-    const d = data as {
-      c: string; p: string; P: string; h: string; l: string; v: string; q: string;
-    };
+    const d = data as { c: string; p: string; P: string; h: string; l: string; v: string; q: string };
     if (!d.c) return;
     setTicker({
-      lastPrice: parseFloat(d.c),
-      priceChange: parseFloat(d.p),
-      priceChangePercent: parseFloat(d.P),
-      highPrice: parseFloat(d.h),
-      lowPrice: parseFloat(d.l),
-      volume: parseFloat(d.v),
-      quoteVolume: parseFloat(d.q),
+      lastPrice:           parseFloat(d.c),
+      priceChange:         parseFloat(d.p),
+      priceChangePercent:  parseFloat(d.P),
+      highPrice:           parseFloat(d.h),
+      lowPrice:            parseFloat(d.l),
+      volume:              parseFloat(d.v),
+      quoteVolume:         parseFloat(d.q),
     });
   }, []);
 
