@@ -1,18 +1,19 @@
 /**
  * LicenseGate.tsx — ZERØ ORDER BOOK
- * Freemium modal — bukan hard gate.
- * Muncul saat user klik fitur PRO yang di-lock.
+ * Subtle PRO gate — no pushy overlay, just a quiet locked state.
  * rgba() only ✓ · IBM Plex Mono ✓ · React.memo ✓ · displayName ✓
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 
+const PROXY_URL = import.meta.env.VITE_PROXY_URL ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+
 interface LicenseModalProps {
   onUnlock: (key: string) => void;
   onClose:  () => void;
 }
-
-const PROXY_URL = import.meta.env.VITE_PROXY_URL ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 
 const LicenseModal: React.FC<LicenseModalProps> = React.memo(({ onUnlock, onClose }) => {
   const [key,     setKey]     = useState('');
@@ -29,36 +30,31 @@ const LicenseModal: React.FC<LicenseModalProps> = React.memo(({ onUnlock, onClos
   }, []);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
   const handleVerify = useCallback(async () => {
     const trimmed = key.trim();
-    if (!trimmed) { setError('Masukkan license key dari Gumroad.'); return; }
-
-    setLoading(true);
-    setError(null);
-
+    if (!trimmed) { setError('Enter your license key from Gumroad.'); return; }
+    setLoading(true); setError(null);
     try {
       const res  = await fetch(`${PROXY_URL}/verify-license`, {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ license_key: trimmed, product_id: 'atbwr' }),
+        body: JSON.stringify({ license_key: trimmed, product_id: 'atbwr' }),
       });
       const data = await res.json();
-
       if (!mountedRef.current) return;
-
       if (res.ok && data.success) {
         setSuccess(true);
-        setTimeout(() => { if (mountedRef.current) onUnlock(trimmed); }, 700);
+        setTimeout(() => { if (mountedRef.current) onUnlock(trimmed); }, 600);
       } else {
-        setError(data.message ?? 'License key tidak valid. Cek email Gumroad kamu.');
+        setError(data.message ?? 'Invalid key. Check your Gumroad email.');
       }
     } catch {
-      if (mountedRef.current) setError('Gagal konek ke server. Coba lagi.');
+      if (mountedRef.current) setError('Connection failed. Try again.');
     } finally {
       if (mountedRef.current) setLoading(false);
     }
@@ -73,79 +69,96 @@ const LicenseModal: React.FC<LicenseModalProps> = React.memo(({ onUnlock, onClos
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
-        background: 'rgba(0,0,0,0.75)',
+        background: 'rgba(0,0,0,0.60)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontFamily: '"IBM Plex Mono", monospace',
         padding: '24px',
-        backdropFilter: 'blur(4px)',
+        backdropFilter: 'blur(6px)',
       }}
     >
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          width: '100%', maxWidth: '400px',
-          background: 'rgba(16,19,28,1)',
-          border: '1px solid rgba(242,142,44,0.30)',
-          borderRadius: '6px',
-          padding: '32px 28px 28px',
-          boxShadow: '0 0 60px rgba(242,142,44,0.10)',
+          width: '100%', maxWidth: '380px',
+          background: 'rgba(14,17,26,1)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '8px',
+          padding: '28px 24px 24px',
           position: 'relative',
         }}
       >
+        {/* Close */}
         <button
           onClick={onClose}
           style={{
-            position: 'absolute', top: '12px', right: '14px',
+            position: 'absolute', top: '14px', right: '14px',
             background: 'transparent', border: 'none', cursor: 'pointer',
-            color: 'rgba(255,255,255,0.25)', fontSize: '16px', lineHeight: 1,
+            color: 'rgba(255,255,255,0.20)', fontSize: '14px',
             fontFamily: 'inherit', padding: '4px',
+            lineHeight: 1,
           }}
         >✕</button>
 
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(242,142,44,1)', letterSpacing: '0.10em', marginBottom: '6px' }}>
-            ⚡ PRO FEATURE
+        {/* Header */}
+        <div style={{ marginBottom: '22px' }}>
+          <div style={{
+            fontSize: '10px', fontWeight: 700,
+            color: 'rgba(242,142,44,0.80)',
+            letterSpacing: '0.12em', marginBottom: '8px',
+          }}>
+            ZERØ ORDER BOOK PRO
           </div>
-          <div style={{ fontSize: '15px', fontWeight: 800, color: 'rgba(255,255,255,0.92)', marginBottom: '4px' }}>
-            Unlock ZERØ ORDER BOOK PRO
+          <div style={{
+            fontSize: '13px', fontWeight: 600,
+            color: 'rgba(255,255,255,0.85)',
+            lineHeight: 1.5, marginBottom: '6px',
+          }}>
+            Depth Chart · Liquidation Feed · Market Data
           </div>
-          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.40)', lineHeight: 1.6 }}>
-            Liquidation Feed · Market Data · Depth Chart
+          <div style={{
+            fontSize: '10px', color: 'rgba(255,255,255,0.30)',
+            lineHeight: 1.6,
+          }}>
+            One-time payment. Yours forever.
           </div>
         </div>
 
-        <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', marginBottom: '20px' }} />
+        <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)', marginBottom: '20px' }} />
 
+        {/* Buy CTA */}
         <a
           href="https://zerobuildlab.gumroad.com/l/atbwr"
           target="_blank"
           rel="noopener noreferrer"
           style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: '100%', height: '40px', marginBottom: '16px',
-            background: 'rgba(242,142,44,0.15)',
-            border: '1px solid rgba(242,142,44,0.50)',
-            borderRadius: '4px', textDecoration: 'none',
-            fontSize: '11px', fontWeight: 800,
-            color: 'rgba(242,142,44,1)', letterSpacing: '0.08em',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            width: '100%', height: '42px', marginBottom: '20px',
+            padding: '0 16px', boxSizing: 'border-box',
+            background: 'rgba(242,142,44,0.10)',
+            border: '1px solid rgba(242,142,44,0.25)',
+            borderRadius: '6px', textDecoration: 'none',
           }}
         >
-          Beli Sekarang — $9 Lifetime ↗
+          <span style={{
+            fontSize: '11px', fontWeight: 700,
+            color: 'rgba(255,255,255,0.70)', letterSpacing: '0.04em',
+          }}>Get PRO access</span>
+          <span style={{
+            fontSize: '13px', fontWeight: 800,
+            color: 'rgba(242,142,44,1)',
+          }}>$9 →</span>
         </a>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-          <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
-          <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.20)', letterSpacing: '0.08em' }}>SUDAH BELI?</span>
-          <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+        {/* Already bought */}
+        <div style={{
+          fontSize: '9px', color: 'rgba(255,255,255,0.25)',
+          letterSpacing: '0.10em', marginBottom: '10px',
+          textTransform: 'uppercase',
+        }}>
+          Already bought? Enter your key
         </div>
 
-        <div style={{ marginBottom: '10px' }}>
-          <label style={{
-            display: 'block', fontSize: '9px', fontWeight: 700,
-            color: 'rgba(255,255,255,0.28)', letterSpacing: '0.12em', marginBottom: '7px',
-          }}>
-            LICENSE KEY
-          </label>
+        <div style={{ marginBottom: error ? '8px' : '12px' }}>
           <input
             ref={inputRef}
             type="text"
@@ -158,25 +171,24 @@ const LicenseModal: React.FC<LicenseModalProps> = React.memo(({ onUnlock, onClos
             autoComplete="off"
             style={{
               width: '100%', boxSizing: 'border-box',
-              background: 'rgba(255,255,255,0.04)',
-              border: `1px solid ${error ? 'rgba(239,83,80,0.60)' : 'rgba(255,255,255,0.10)'}`,
-              borderRadius: '4px', padding: '9px 11px',
+              background: 'rgba(255,255,255,0.03)',
+              border: `1px solid ${error ? 'rgba(239,83,80,0.40)' : 'rgba(255,255,255,0.08)'}`,
+              borderRadius: '5px', padding: '9px 12px',
               fontFamily: '"IBM Plex Mono", monospace',
-              fontSize: '11px', fontWeight: 500,
-              color: 'rgba(255,255,255,0.90)', letterSpacing: '0.03em',
-              outline: 'none',
+              fontSize: '11px', color: 'rgba(255,255,255,0.85)',
+              outline: 'none', letterSpacing: '0.02em',
             }}
           />
         </div>
 
         {error && (
-          <div style={{ fontSize: '10px', color: 'rgba(239,83,80,0.90)', marginBottom: '10px', lineHeight: 1.5 }}>
-            ⚠ {error}
+          <div style={{ fontSize: '10px', color: 'rgba(239,83,80,0.80)', marginBottom: '10px', lineHeight: 1.5 }}>
+            {error}
           </div>
         )}
         {success && (
           <div style={{ fontSize: '10px', color: 'rgba(38,166,154,1)', marginBottom: '10px', letterSpacing: '0.06em' }}>
-            ✓ LICENSE VALID — UNLOCKING...
+            ✓ Unlocked
           </div>
         )}
 
@@ -185,22 +197,25 @@ const LicenseModal: React.FC<LicenseModalProps> = React.memo(({ onUnlock, onClos
           disabled={loading || success || !key.trim()}
           style={{
             width: '100%', height: '36px',
-            background: success ? 'rgba(38,166,154,0.15)' : 'rgba(255,255,255,0.06)',
-            border: `1px solid ${success ? 'rgba(38,166,154,0.50)' : 'rgba(255,255,255,0.12)'}`,
-            borderRadius: '4px',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.09)',
+            borderRadius: '5px',
             fontFamily: '"IBM Plex Mono", monospace',
-            fontSize: '10px', fontWeight: 800,
-            color: success ? 'rgba(38,166,154,1)' : 'rgba(255,255,255,0.70)',
+            fontSize: '10px', fontWeight: 700,
+            color: 'rgba(255,255,255,0.55)',
             letterSpacing: '0.08em',
             cursor: loading || success || !key.trim() ? 'not-allowed' : 'pointer',
             opacity: !key.trim() && !loading ? 0.5 : 1,
           }}
         >
-          {loading ? 'VERIFYING...' : success ? '✓ UNLOCKED' : 'UNLOCK ACCESS'}
+          {loading ? 'Verifying...' : success ? '✓ Unlocked' : 'Activate Key'}
         </button>
 
-        <div style={{ marginTop: '16px', textAlign: 'center', fontSize: '9px', color: 'rgba(255,255,255,0.15)', lineHeight: 1.6 }}>
-          Key tersimpan di device ini — tidak perlu input ulang.
+        <div style={{
+          marginTop: '14px', textAlign: 'center',
+          fontSize: '9px', color: 'rgba(255,255,255,0.12)', lineHeight: 1.6,
+        }}>
+          Key is saved on this device.
         </div>
       </div>
     </div>
@@ -209,7 +224,7 @@ const LicenseModal: React.FC<LicenseModalProps> = React.memo(({ onUnlock, onClos
 
 LicenseModal.displayName = 'LicenseModal';
 
-// ── ProLock — wrap komponen PRO dengan ini ────────────────────────────────────
+// ── ProLock — subtle locked panel ─────────────────────────────────────────────
 
 interface ProLockProps {
   isPro:      boolean;
@@ -222,38 +237,44 @@ export const ProLock: React.FC<ProLockProps> = React.memo(({ isPro, onClickPro, 
   if (isPro) return <>{children}</>;
 
   return (
-    <div style={{ position: 'relative', height: '100%', width: '100%', overflow: 'hidden' }}>
-      <div style={{ filter: 'blur(3px)', opacity: 0.30, height: '100%', pointerEvents: 'none' }}>
+    <div
+      onClick={onClickPro}
+      style={{
+        position: 'relative', height: '100%', width: '100%',
+        overflow: 'hidden', cursor: 'pointer',
+      }}
+    >
+      {/* Content — visible but muted */}
+      <div style={{ opacity: 0.15, height: '100%', pointerEvents: 'none', userSelect: 'none' }}>
         {children}
       </div>
-      <div
-        onClick={onClickPro}
-        style={{
-          position: 'absolute', inset: 0,
-          display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center',
-          gap: '10px', cursor: 'pointer',
-          background: 'rgba(13,16,23,0.60)',
-        }}
-      >
-        <div style={{ fontSize: '22px' }}>🔒</div>
+
+      {/* Subtle center prompt */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        gap: '8px',
+      }}>
         <div style={{
-          fontSize: '10px', fontWeight: 800,
-          color: 'rgba(255,255,255,0.80)', letterSpacing: '0.10em',
+          fontSize: '9px', fontWeight: 700,
+          color: 'rgba(255,255,255,0.25)',
+          letterSpacing: '0.14em', textTransform: 'uppercase',
           fontFamily: '"IBM Plex Mono", monospace',
         }}>
-          {label ?? 'PRO FEATURE'}
+          {label ?? 'PRO'}
         </div>
         <div style={{
-          padding: '6px 16px',
-          background: 'rgba(242,142,44,0.15)',
-          border: '1px solid rgba(242,142,44,0.40)',
+          padding: '4px 12px',
+          border: '1px solid rgba(242,142,44,0.20)',
           borderRadius: '3px',
-          fontSize: '9px', fontWeight: 700,
-          color: 'rgba(242,142,44,1)', letterSpacing: '0.08em',
+          fontSize: '9px', fontWeight: 600,
+          color: 'rgba(242,142,44,0.60)',
+          letterSpacing: '0.08em',
           fontFamily: '"IBM Plex Mono", monospace',
+          background: 'rgba(242,142,44,0.04)',
         }}>
-          ⚡ UNLOCK $9
+          unlock
         </div>
       </div>
     </div>
