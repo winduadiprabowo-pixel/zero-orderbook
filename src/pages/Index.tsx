@@ -144,6 +144,7 @@ PanelHeader.displayName = 'PanelHeader';
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const Index: React.FC = () => {
+  const { isPro, unlock } = useProAccess();
   const [activeSymbol,  setActiveSymbol]  = useState('btcusdt');
   const [interval,      setIntervalState] = useState<Interval>('15m');
   const [precision,     setPrecision]     = useState<Precision>('0.01');
@@ -151,6 +152,7 @@ const Index: React.FC = () => {
   const [tabletBottom,  setTabletBottom]  = useState<TabletBottomTab>('depth');
   const [showMarkets,   setShowMarkets]   = useState(false);
   const [sidebarOpen,   setSidebarOpen]   = useState(true);
+  const [showProModal,  setShowProModal]  = useState(false);
   const prevMidRef = useRef<number | null>(null);
 
   const { pairs, loading: pairsLoading, error: pairsError } = useMarketPairs();
