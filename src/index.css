@@ -289,3 +289,59 @@ button:focus-visible {
   100% { transform: translateY(0);    opacity: 1; }
 }
 .slide-in-top { animation: slide-in-top 120ms ease-out; }
+
+/* ── v26 additions ── */
+
+/* Sidebar toggle button hover */
+button[aria-label*="sidebar"]:hover,
+button[aria-label*="market"]:hover {
+  background: rgba(255,255,255,0.08) !important;
+  color: rgba(255,255,255,0.80) !important;
+}
+
+/* Tighter focus style */
+button:focus-visible {
+  outline: 1px solid rgba(242,142,44,0.5);
+  outline-offset: 1px;
+}
+
+/* Sidebar row hover — faster */
+[role="button"]:focus-visible {
+  outline: 1px solid rgba(242,142,44,0.4);
+  outline-offset: -1px;
+}
+
+/* Stats chip text */
+.desktop-stats .mono-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Pro feature tag pulse */
+@keyframes pro-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+
+/* Depth chart tooltip fade */
+@keyframes tooltip-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Liquidation whale row highlight */
+.liq-whale-row {
+  animation: liq-pulse 1.5s ease-in-out 3;
+}
+
+/* Trade size bar transition */
+.trade-bar {
+  transition: width 200ms ease-out;
+}
+
+/* Better mobile tap targets */
+@media (max-width: 767px) {
+  button, [role="button"] {
+    min-height: 36px;
+  }
+}
