@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useBinanceWs } from './useBinanceWs';
 import type { OrderBookLevel, ConnectionStatus } from '@/types/market';
 
@@ -7,46 +7,34 @@ interface DepthSnapshot {
   asks: [string, string][];
 }
 
-function processLevels(raw: [string, string][], isAsk: boolean): OrderBookLevel[] {
-  const levels = raw
+function processLevels(raw: [string, string][], isAsk: boolean, levels: number): OrderBookLevel[] {
+  const result = raw
     .map(([p, s]) => ({ price: parseFloat(p), size: parseFloat(s), total: 0 }))
     .filter((l) => l.size > 0)
     .sort((a, b) => isAsk ? a.price - b.price : b.price - a.price)
-    .slice(0, 20);
+    .slice(0, levels);
 
   let cumulative = 0;
-  for (const level of levels) {
-    cumulative += level.size;
-    level.total = cumulative;
+  for (const lvl of result) {
+    cumulative += lvl.size;
+    lvl.total = cumulative;
   }
-  return levels;
+  return result;
 }
 
-export function useOrderBook(symbol: string) {
+export function useOrderBook(symbol: string, levels = 20) {
   const [bids, setBids] = useState<OrderBookLevel[]>([]);
   const [asks, setAsks] = useState<OrderBookLevel[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
-  const [lastUpdate, setLastUpdate] = useState<number>(0);
-  const prevSizesRef = useRef<Map<string, number>>(new Map());
+  const [lastUpdate, setLastUpdate] = useState(0);
 
   const handleMessage = useCallback((data: unknown) => {
     const d = data as DepthSnapshot;
     if (!d.bids || !d.asks) return;
-
-    const newBids = processLevels(d.bids, false);
-    const newAsks = processLevels(d.asks, true);
-
-    // Track size changes for flash
-    const newSizes = new Map<string, number>();
-    for (const l of [...newBids, ...newAsks]) {
-      newSizes.set(l.price.toString(), l.size);
-    }
-    prevSizesRef.current = newSizes;
-
-    setBids(newBids);
-    setAsks(newAsks);
+    setBids(processLevels(d.bids, false, levels));
+    setAsks(processLevels(d.asks, true, levels));
     setLastUpdate(Date.now());
-  }, []);
+  }, [levels]);
 
   const { retry } = useBinanceWs({
     url: `wss://stream.binance.com:9443/ws/${symbol}@depth20@100ms`,
