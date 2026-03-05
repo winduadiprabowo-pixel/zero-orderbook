@@ -12,7 +12,8 @@ import { formatCompact, formatChange, fearGreedColor } from '@/lib/formatters';
 interface HeaderProps {
   activeSymbol:     string;
   symbolInfo:       SymbolInfo;
-  onOpenMarkets:    () => void;        // fallback: open full modal (mobile)
+  onOpenMarkets:    () => void;
+  onOpenPro:        () => void;
   status:           ConnectionStatus;
   lastUpdate:       number;
   ticker:           TickerData | null;
@@ -20,7 +21,7 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = React.memo(({
-  activeSymbol, symbolInfo, onOpenMarkets,
+  activeSymbol, symbolInfo, onOpenMarkets, onOpenPro,
   status, lastUpdate, ticker, globalStats,
 }) => {
   const statusColor = useMemo(() => {
@@ -165,10 +166,8 @@ const Header: React.FC<HeaderProps> = React.memo(({
         </div>
 
         {/* PRO CTA */}
-        <a
-          href="https://zerobuildlab.gumroad.com/l/atbwr"
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          onClick={onOpenPro}
           className="badge-glow"
           aria-label="Upgrade to ZERØ ORDER BOOK PRO"
           style={{
@@ -177,14 +176,14 @@ const Header: React.FC<HeaderProps> = React.memo(({
             background: 'rgba(242,142,44,0.12)',
             border: '1px solid rgba(242,142,44,0.40)',
             borderRadius: '3px', cursor: 'pointer',
-            textDecoration: 'none',
+            fontFamily: 'inherit',
             fontSize: '10px', fontWeight: 700,
             color: 'rgba(242,142,44,1)', letterSpacing: '0.07em',
             whiteSpace: 'nowrap',
           }}
         >
           ⚡ PRO $9
-        </a>
+        </button>
       </div>
     </header>
   );
