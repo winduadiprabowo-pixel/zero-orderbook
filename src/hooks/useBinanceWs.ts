@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { getReconnectDelay } from '@/lib/formatters';
 import type { ConnectionStatus } from '@/types/market';
 
 interface UseBinanceWsOptions {
@@ -8,28 +9,47 @@ interface UseBinanceWsOptions {
   enabled?: boolean;
 }
 
-export function useBinanceWs({ url, onMessage, onStatusChange, enabled = true }: UseBinanceWsOptions) {
-  const wsRef = useRef<WebSocket | null>(null);
-  const mountedRef = useRef(true);
-  const retriesRef = useRef(0);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const onMessageRef = useRef(onMessage);
-  const onStatusRef = useRef(onStatusChange);
-  const rafRef = useRef<number>();
-  const pendingDataRef = useRef<unknown[]>([]);
+export function useBinanceWs({
+  url,
+  onMessage,
+  onStatusChange,
+  enabled = true,
+}: UseBinanceWsOptions) {
+  const wsRef           = useRef<WebSocket | null>(null);
+  const mountedRef      = useRef(true);
+  const attemptRef      = useRef(0);
+  const timeoutRef      = useRef<ReturnType<typeof setTimeout>>();
+  const onMessageRef    = useRef(onMessage);
+  const onStatusRef     = useRef(onStatusChange);
+  const rafRef          = useRef<number>();
+  const pendingRef      = useRef<unknown[]>([]);
 
   onMessageRef.current = onMessage;
-  onStatusRef.current = onStatusChange;
+  onStatusRef.current  = onStatusChange;
 
-  const processMessages = useCallback(() => {
-    const msgs = pendingDataRef.current;
-    pendingDataRef.current = [];
-    for (const msg of msgs) {
-      onMessageRef.current(msg);
-    }
+  const flush = useCallback(() => {
+    const msgs = pendingRef.current.splice(0);
+    for (const m of msgs) onMessageRef.current(m);
   }, []);
 
-  const connect = useCallback(() => {
+  const scheduleFlush = useCallback(() => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = undefined;
+      if (mountedRef.current) flush();
+    });
+  }, [flush]);
+
+  const reconnect = useCallback((attempt: number) => {
+    if (!mountedRef.current) return;
+    onStatusRef.current?.('reconnecting');
+    const delay = getReconnectDelay(attempt);
+    timeoutRef.current = setTimeout(() => {
+      if (mountedRef.current) connect(attempt + 1); // eslint-disable-line @typescript-eslint/no-use-before-define
+    }, delay);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const connect = useCallback((attempt = 0) => {
     if (!mountedRef.current || !enabled) return;
 
     try {
@@ -38,67 +58,40 @@ export function useBinanceWs({ url, onMessage, onStatusChange, enabled = true }:
 
       ws.onopen = () => {
         if (!mountedRef.current) return;
-        retriesRef.current = 0;
+        attemptRef.current = 0;
         onStatusRef.current?.('connected');
       };
 
-      ws.onmessage = (event) => {
+      ws.onmessage = (event: MessageEvent) => {
         if (!mountedRef.current) return;
         try {
-          const data = JSON.parse(event.data);
-          pendingDataRef.current.push(data);
-          if (!rafRef.current) {
-            rafRef.current = requestAnimationFrame(() => {
-              rafRef.current = undefined;
-              if (mountedRef.current) processMessages();
-            });
-          }
-        } catch {
-          // ignore parse errors
-        }
+          pendingRef.current.push(JSON.parse(event.data as string));
+          scheduleFlush();
+        } catch { /* ignore parse errors */ }
       };
 
       ws.onclose = () => {
         if (!mountedRef.current) return;
-        reconnect();
+        onStatusRef.current?.('disconnected');
+        reconnect(attempt);
       };
 
-      ws.onerror = () => {
-        if (!mountedRef.current) return;
-        ws.close();
-      };
+      ws.onerror = () => ws.close();
     } catch {
-      reconnect();
+      reconnect(attempt);
     }
-  }, [url, enabled, processMessages]);
-
-  const reconnect = useCallback(() => {
-    if (!mountedRef.current) return;
-    const retries = retriesRef.current;
-    if (retries >= 3) {
-      onStatusRef.current?.('disconnected');
-      return;
-    }
-    onStatusRef.current?.('reconnecting');
-    retriesRef.current = retries + 1;
-    const delay = Math.min(1000 * Math.pow(2, retries), 30000);
-    timeoutRef.current = setTimeout(() => {
-      if (mountedRef.current) connect();
-    }, delay);
-  }, [connect]);
+  }, [url, enabled, scheduleFlush, reconnect]);
 
   const retry = useCallback(() => {
-    retriesRef.current = 0;
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    connect();
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    wsRef.current?.close();
+    wsRef.current = null;
+    connect(0);
   }, [connect]);
 
   useEffect(() => {
     mountedRef.current = true;
-    if (enabled) connect();
+    if (enabled) connect(0);
 
     return () => {
       mountedRef.current = false;
