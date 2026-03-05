@@ -2,16 +2,19 @@
  * zero-orderbook-proxy — Cloudflare Worker
  * WebSocket proxy: Binance spot streams + fstream liquidations
  * REST proxy: Binance REST API (klines, fapi)
+ * License: Gumroad license key verification
  *
  * Routes:
- *   WS  /ws/*           → wss://stream.binance.com:9443/ws/*
- *   WS  /fstream/*      → wss://fstream.binance.com/ws/*
- *   GET /api/*          → https://api.binance.com/api/*
- *   GET /fapi/*         → https://fapi.binance.com/fapi/*
- *   GET /fdata/*        → https://fapi.binance.com/futures/data/*
+ *   WS   /ws/*              → wss://stream.binance.com:9443/ws/*
+ *   WS   /fstream/*         → wss://fstream.binance.com/ws/*
+ *   GET  /api/*             → https://api.binance.com/api/*
+ *   GET  /fapi/*            → https://fapi.binance.com/fapi/*
+ *   GET  /fdata/*           → https://fapi.binance.com/futures/data/*
+ *   POST /verify-license    → https://api.gumroad.com/v2/licenses/verify
  */
 
-const ALLOWED_ORIGIN = 'https://zero-orderbook.pages.dev';
+const ALLOWED_ORIGIN  = 'https://zero-orderbook.pages.dev';
+const GUMROAD_PRODUCT = 'atbwr';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  ALLOWED_ORIGIN,
@@ -28,6 +31,12 @@ export default {
     // ── CORS preflight ──────────────────────────────────────────────────────
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
+
+    // ── License verify ──────────────────────────────────────────────────────
+    if (url.pathname === '/verify-license' && request.method === 'POST') {
+      return handleVerifyLicense(request);
     }
 
     // ── WebSocket upgrade ───────────────────────────────────────────────────
@@ -134,6 +143,72 @@ async function handleRest(request, url) {
     return new Response(JSON.stringify({ error: 'proxy error', detail: String(err) }), {
       status:  502,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+// ─── License verify ───────────────────────────────────────────────────────────
+
+async function handleVerifyLicense(request) {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin':  ALLOWED_ORIGIN,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ success: false, message: 'Bad request.' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  const licenseKey = (body.license_key ?? '').trim();
+
+  if (!licenseKey) {
+    return new Response(JSON.stringify({ success: false, message: 'License key wajib diisi.' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    // Hit Gumroad license API
+    const gumroadRes = await fetch('https://api.gumroad.com/v2/licenses/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        product_id:  GUMROAD_PRODUCT,
+        license_key: licenseKey,
+      }).toString(),
+    });
+
+    const gumroadData = await gumroadRes.json();
+
+    if (gumroadData.success) {
+      return new Response(JSON.stringify({
+        success: true,
+        message: 'License valid.',
+        uses:    gumroadData.uses,
+        email:   gumroadData.purchase?.email ?? '',
+      }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    } else {
+      return new Response(JSON.stringify({
+        success: false,
+        message: 'License key tidak valid atau sudah refunded. Cek email Gumroad kamu.',
+      }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+  } catch (err) {
+    return new Response(JSON.stringify({
+      success: false,
+      message: 'Gagal verifikasi. Coba beberapa saat lagi.',
+    }), {
+      status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 }
