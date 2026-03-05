@@ -24,12 +24,12 @@ const INTERVALS: { value: Interval; label: string }[] = [
 const CandlestickChart: React.FC<CandlestickChartProps> = React.memo(({
   candles, interval, onIntervalChange, symbol,
 }) => {
-  const containerRef     = useRef<HTMLDivElement>(null);
-  const chartRef         = useRef<IChartApi | null>(null);
-  const candleSeriesRef  = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const volumeSeriesRef  = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const prevSymRef       = useRef(symbol);
-  const prevIntvRef      = useRef(interval);
+  const containerRef    = useRef<HTMLDivElement>(null);
+  const chartRef        = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const prevSymRef      = useRef(symbol);
+  const prevIntvRef     = useRef(interval);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -40,6 +40,7 @@ const CandlestickChart: React.FC<CandlestickChartProps> = React.memo(({
         textColor:   'rgba(255,255,255,0.28)',
         fontFamily:  "'IBM Plex Mono', monospace",
         fontSize:    10,
+        attributionLogo: false, // ← hides TradingView watermark (v4+)
       },
       grid: {
         vertLines: { color: 'rgba(255,255,255,0.03)' },
@@ -64,12 +65,12 @@ const CandlestickChart: React.FC<CandlestickChartProps> = React.memo(({
     });
 
     const candleSeries = chart.addCandlestickSeries({
-      upColor:        'rgba(38,166,154,1)',
-      downColor:      'rgba(239,83,80,1)',
-      borderUpColor:  'rgba(38,166,154,1)',
-      borderDownColor:'rgba(239,83,80,1)',
-      wickUpColor:    'rgba(38,166,154,0.7)',
-      wickDownColor:  'rgba(239,83,80,0.7)',
+      upColor:         'rgba(38,166,154,1)',
+      downColor:       'rgba(239,83,80,1)',
+      borderUpColor:   'rgba(38,166,154,1)',
+      borderDownColor: 'rgba(239,83,80,1)',
+      wickUpColor:     'rgba(38,166,154,0.7)',
+      wickDownColor:   'rgba(239,83,80,0.7)',
     });
 
     const volumeSeries = chart.addHistogramSeries({
@@ -82,6 +83,15 @@ const CandlestickChart: React.FC<CandlestickChartProps> = React.memo(({
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
 
+    // CSS-nuke any remaining TV watermark that slips through
+    const killWatermark = () => {
+      const el = containerRef.current?.querySelector<HTMLElement>('a[href*="tradingview"]');
+      if (el) el.style.display = 'none';
+    };
+    const observer = new MutationObserver(killWatermark);
+    observer.observe(containerRef.current, { childList: true, subtree: true });
+    setTimeout(killWatermark, 500);
+
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         chart.applyOptions({
@@ -93,9 +103,10 @@ const CandlestickChart: React.FC<CandlestickChartProps> = React.memo(({
     ro.observe(containerRef.current);
 
     return () => {
+      observer.disconnect();
       ro.disconnect();
       chart.remove();
-      chartRef.current = null;
+      chartRef.current        = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
     };
@@ -107,7 +118,13 @@ const CandlestickChart: React.FC<CandlestickChartProps> = React.memo(({
     const shouldFit = prevSymRef.current !== symbol || prevIntvRef.current !== interval;
 
     candleSeriesRef.current.setData(
-      candles.map((c) => ({ time: c.time as number & { readonly __type: unique symbol }, open: c.open, high: c.high, low: c.low, close: c.close }))
+      candles.map((c) => ({
+        time:  c.time as number & { readonly __type: unique symbol },
+        open:  c.open,
+        high:  c.high,
+        low:   c.low,
+        close: c.close,
+      }))
     );
     volumeSeriesRef.current.setData(
       candles.map((c) => ({
@@ -155,7 +172,15 @@ const CandlestickChart: React.FC<CandlestickChartProps> = React.memo(({
         ))}
       </div>
 
-      <div ref={containerRef} style={{ flex: 1, minHeight: 0 }} />
+      <div ref={containerRef} style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        {/* Extra CSS kill for watermark */}
+        <style>{`
+          .tv-lightweight-charts a,
+          .tv-lightweight-charts td > a,
+          a[href*="tradingview"],
+          [class*="watermark"] { display: none !important; opacity: 0 !important; }
+        `}</style>
+      </div>
     </div>
   );
 });
