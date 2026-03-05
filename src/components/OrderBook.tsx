@@ -15,17 +15,16 @@ interface OrderBookProps {
 
 const PRECISIONS: Precision[] = ['0.1', '0.01', '0.001'];
 
-// ─── OrderBook ────────────────────────────────────────────────────────────────
-
 const OrderBook: React.FC<OrderBookProps> = React.memo(({
   bids, asks, midPrice, prevMidPrice, precision, onPrecisionChange,
   compact = false, levels = 20,
 }) => {
+  // asks displayed top-to-bottom: highest ask first (reversed), lowest ask nearest mid
   const displayAsks = useMemo(() => asks.slice(0, levels).reverse(), [asks, levels]);
   const displayBids = useMemo(() => bids.slice(0, levels), [bids, levels]);
 
   const maxTotal = useMemo(() => {
-    const a = displayAsks.length ? displayAsks[displayAsks.length - 1]?.total ?? 0 : 0;
+    const a = displayAsks.length ? displayAsks[0]?.total ?? 0 : 0;
     const b = displayBids.length ? displayBids[displayBids.length - 1]?.total ?? 0 : 0;
     return Math.max(a, b, 1);
   }, [displayAsks, displayBids]);
@@ -54,6 +53,7 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
     <div style={{
       display: 'flex', flexDirection: 'column', height: '100%',
       background: 'var(--panel-bg)', boxShadow: 'var(--panel-glow)',
+      overflow: 'hidden',
     }}>
       {/* Header */}
       <div style={{
@@ -86,11 +86,15 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
       {/* Column headers */}
       <ColHeader compact={compact} />
 
-      {/* Asks (reversed — lowest ask at bottom) */}
+      {/* ASKS — flex:1, justify end so lowest ask is closest to mid */}
       <div style={{
-        flex: 1, overflow: 'hidden',
-        display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-      }}>
+        flex: 1,
+        overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'flex-end',
+        minHeight: 0,
+      }} className="hide-scrollbar">
         {displayAsks.map((level, i) => (
           <OrderRow
             key={level.price}
@@ -107,8 +111,14 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
       {/* Mid price */}
       <MidPriceRow midPrice={midPrice} midDirection={midDirection} spread={spread} decimals={decimals} />
 
-      {/* Bids */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      {/* BIDS */}
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+      }} className="hide-scrollbar">
         {displayBids.map((level, i) => (
           <OrderRow
             key={level.price}
@@ -129,12 +139,10 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
 });
 OrderBook.displayName = 'OrderBook';
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
 const ColHeader: React.FC<{ compact: boolean }> = React.memo(({ compact }) => (
   <div style={{
     display: 'grid',
-    gridTemplateColumns: compact ? '1fr 1fr 1fr' : '28px 1fr 1fr 1fr',
+    gridTemplateColumns: compact ? '1fr 1fr 1fr' : '24px 1fr 1fr 1fr',
     padding: compact ? '3px 8px' : '3px 12px', gap: '4px',
     borderBottom: '1px solid var(--border-subtle)', flexShrink: 0,
   }}>
@@ -156,18 +164,18 @@ const MidPriceRow: React.FC<{
     : midDirection === 'down' ? 'var(--ask-color)' : 'var(--text-primary)';
   return (
     <div style={{
-      padding: '7px 12px',
+      padding: '6px 12px',
       borderTop: '1px solid var(--border-subtle)',
       borderBottom: '1px solid var(--border-subtle)',
       background: 'rgba(255,255,255,0.02)',
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       flexShrink: 0,
     }}>
-      <span className="mono-num" style={{ fontSize: '19px', fontWeight: 800, color, lineHeight: 1 }}>
+      <span className="mono-num" style={{ fontSize: '18px', fontWeight: 800, color, lineHeight: 1 }}>
         {midDirection === 'up' ? '▲ ' : midDirection === 'down' ? '▼ ' : ''}
         {midPrice?.toLocaleString('en-US', { minimumFractionDigits: decimals }) ?? '--'}
       </span>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
         <span className="label-xs">SPREAD</span>
         <span className="mono-num" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
           {spread}
@@ -188,7 +196,7 @@ interface OrderRowProps {
 }
 
 const OrderRow: React.FC<OrderRowProps> = React.memo(({ rank, level, side, maxTotal, decimals, compact }) => {
-  const depthPct    = useMemo(() => (level.total / maxTotal) * 100, [level.total, maxTotal]);
+  const depthPct    = useMemo(() => Math.min((level.total / maxTotal) * 100, 100), [level.total, maxTotal]);
   const prevSizeRef = useRef(level.size);
   const [flash, setFlash] = useState('');
 
@@ -211,15 +219,16 @@ const OrderRow: React.FC<OrderRowProps> = React.memo(({ rank, level, side, maxTo
       className={flash || undefined}
       style={{
         display: 'grid',
-        gridTemplateColumns: compact ? '1fr 1fr 1fr' : '28px 1fr 1fr 1fr',
-        padding: compact ? '1px 8px' : '1px 12px', gap: '4px',
+        gridTemplateColumns: compact ? '1fr 1fr 1fr' : '24px 1fr 1fr 1fr',
+        padding: compact ? '1.5px 8px' : '1.5px 12px', gap: '4px',
         fontSize: '11px', fontWeight: 500,
         position: 'relative', cursor: 'default',
+        flexShrink: 0,
       }}
       onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.background = 'var(--hover-bg)')}
       onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.background = 'transparent')}
     >
-      {/* Depth bar */}
+      {/* Depth bar — always on the correct side */}
       <div style={{
         position: 'absolute', top: 0, bottom: 0,
         [isBid ? 'left' : 'right']: 0,
@@ -247,8 +256,6 @@ const OrderRow: React.FC<OrderRowProps> = React.memo(({ rank, level, side, maxTo
   );
 });
 OrderRow.displayName = 'OrderRow';
-
-// ─── PressureBar ──────────────────────────────────────────────────────────────
 
 export const PressureBar: React.FC<{ bidPercent: number }> = React.memo(({ bidPercent }) => {
   const askPct = 100 - bidPercent;
