@@ -76,7 +76,7 @@ const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
       locale:               'en',
       toolbar_bg:           '#0d1017',
       enable_publishing:    false,
-      hide_top_toolbar:     false,
+      hide_top_toolbar:     true,
       hide_legend:          false,
       save_image:           true,
       container_id:         inner.id,
