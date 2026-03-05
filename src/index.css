@@ -262,3 +262,30 @@
 @media (min-width: 1280px) {
   .tablet-hide { display: none !important; }
 }
+
+/* ── Additional UI Polish v2 ── */
+
+/* Tighten row hover transition */
+.order-row-hover {
+  transition: background 80ms ease-out;
+}
+
+/* Better focus outlines */
+button:focus-visible {
+  outline: 1px solid rgba(38,166,154,0.6);
+  outline-offset: 1px;
+}
+
+/* Mid price number — nicer */
+.mid-price-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: -0.015em;
+}
+
+/* Smoother slide in for new rows */
+@keyframes slide-in-top {
+  0%   { transform: translateY(-4px); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+.slide-in-top { animation: slide-in-top 120ms ease-out; }
