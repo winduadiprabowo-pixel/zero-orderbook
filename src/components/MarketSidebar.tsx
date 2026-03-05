@@ -14,7 +14,7 @@ import { formatCompact } from '@/lib/formatters';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const SIDEBAR_W   = 200;   // px when open
+const SIDEBAR_W   = 160;   // px when open
 const ROW_H       = 36;    // px per pair row
 const OVERSCAN    = 4;
 
