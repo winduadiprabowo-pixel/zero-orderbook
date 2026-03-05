@@ -315,14 +315,14 @@ const Index: React.FC = () => {
             <PanelGroup direction="horizontal" autoSaveId="zero-ob-h" style={{ height: '100%' }}>
 
               {/* LEFT: chart + depth */}
-              <Panel id="left" defaultSize={62} minSize={35}
+              <Panel id="left" defaultSize={55} minSize={35}
                 style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 <PanelGroup direction="vertical" autoSaveId="zero-ob-v-left" style={{ height: '100%' }}>
-                  <Panel id="chart" defaultSize={65} minSize={35} style={{ overflow: 'hidden' }}>
+                  <Panel id="chart" defaultSize={62} minSize={35} style={{ overflow: 'hidden' }}>
                     <div style={{ ...P }}>{chartPanel}</div>
                   </Panel>
                   <ResizeHandle direction="vertical" id="v-left" />
-                  <Panel id="depth" defaultSize={35} minSize={20} style={{ overflow: 'hidden' }}>
+                  <Panel id="depth" defaultSize={38} minSize={20} style={{ overflow: 'hidden' }}>
                     {depthPanel}
                   </Panel>
                 </PanelGroup>
@@ -331,21 +331,21 @@ const Index: React.FC = () => {
               <ResizeHandle direction="horizontal" id="h-book" />
 
               {/* MIDDLE: Order Book */}
-              <Panel id="book" defaultSize={18} minSize={12} maxSize={30} style={{ overflow: 'hidden' }}>
+              <Panel id="book" defaultSize={22} minSize={14} maxSize={35} style={{ overflow: 'hidden' }}>
                 <div style={{ ...P }}>{orderBookPanel(20)}</div>
               </Panel>
 
               <ResizeHandle direction="horizontal" id="h-right" />
 
               {/* RIGHT: Trades + Liqs */}
-              <Panel id="right" defaultSize={20} minSize={13} maxSize={32}
+              <Panel id="right" defaultSize={23} minSize={14} maxSize={35}
                 style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 <PanelGroup direction="vertical" autoSaveId="zero-ob-v-right" style={{ height: '100%' }}>
-                  <Panel id="trades" defaultSize={48} minSize={25} style={{ overflow: 'hidden' }}>
+                  <Panel id="trades" defaultSize={50} minSize={25} style={{ overflow: 'hidden' }}>
                     <div style={{ ...P }}>{tradesPanel}</div>
                   </Panel>
                   <ResizeHandle direction="vertical" id="v-right" />
-                  <Panel id="liqs" defaultSize={52} minSize={25} style={{ overflow: 'hidden' }}>
+                  <Panel id="liqs" defaultSize={50} minSize={25} style={{ overflow: 'hidden' }}>
                     <div style={{ ...P }}>{liqsPanel}</div>
                   </Panel>
                 </PanelGroup>
@@ -416,11 +416,7 @@ const Index: React.FC = () => {
 
           <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {tabletBottom === 'depth' && (
-              <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'rgba(16,19,28,1)' }}>
-                <div style={{ flex: 1, minHeight: 0 }}>
-                  <DepthChart bids={bids} asks={asks} midPrice={midPrice} />
-                </div>
-              </div>
+              <div style={{ height: '100%' }}>{depthPanel}</div>
             )}
             {tabletBottom === 'stats' && (
               <PanelGroup direction="horizontal" autoSaveId="zero-ob-tablet-stats" style={{ height: '100%' }}>
@@ -456,12 +452,7 @@ const Index: React.FC = () => {
               compact levels={20}
             />
           </div>
-          <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'depth'  ? 'flex' : 'none', flexDirection: 'column' }}>
-            <PanelHeader title="DEPTH CHART" />
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <DepthChart bids={bids} asks={asks} midPrice={midPrice} />
-            </div>
-          </div>
+          <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'depth'  ? 'flex' : 'none', flexDirection: 'column' }}>{depthPanel}</div>
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'trades' ? 'flex' : 'none', flexDirection: 'column' }}>{tradesPanel}</div>
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'liqs'   ? 'flex' : 'none', flexDirection: 'column' }}>{liqsPanel}</div>
         </div>
