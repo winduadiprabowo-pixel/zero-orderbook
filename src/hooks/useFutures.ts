@@ -1,12 +1,10 @@
 /**
  * useFutures.ts — ZERØ ORDER BOOK
- * Real Binance Futures endpoints — no mock data.
- * Fetches: funding rate, mark price, open interest, long/short ratio.
- * Poll interval: 30s for funding/OI, 60s for LSR.
- * mountedRef + AbortController + error state.
+ * Real Binance Futures endpoints — proxied via CF Worker when VITE_WS_PROXY is set.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { resolveRestUrl } from './useBinanceWs';
 import type { FuturesData } from '@/types/market';
 
 const FAPI = 'https://fapi.binance.com/fapi/v1';
@@ -17,20 +15,19 @@ interface RawPremiumIndex {
   lastFundingRate: string;
   nextFundingTime: number;
 }
-
 interface RawOI {
   openInterest: string;
   symbol: string;
 }
-
 interface RawLSR {
   longShortRatio: string;
   longAccount: string;
   shortAccount: string;
 }
 
-async function fetchFundingAndMark(symbol: string, signal: AbortSignal): Promise<Pick<FuturesData, 'fundingRate' | 'markPrice' | 'nextFundingTime'>> {
-  const res = await fetch(`${FAPI}/premiumIndex?symbol=${symbol}`, { signal });
+async function fetchFundingAndMark(symbol: string, signal: AbortSignal) {
+  const url = resolveRestUrl(`${FAPI}/premiumIndex?symbol=${symbol}`);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error('premiumIndex failed');
   const d = await res.json() as RawPremiumIndex;
   return {
@@ -40,22 +37,17 @@ async function fetchFundingAndMark(symbol: string, signal: AbortSignal): Promise
   };
 }
 
-async function fetchOI(symbol: string, signal: AbortSignal): Promise<Pick<FuturesData, 'openInterest' | 'openInterestUsd'>> {
-  const res = await fetch(`${FAPI}/openInterest?symbol=${symbol}`, { signal });
+async function fetchOI(symbol: string, signal: AbortSignal) {
+  const url = resolveRestUrl(`${FAPI}/openInterest?symbol=${symbol}`);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error('openInterest failed');
   const d = await res.json() as RawOI;
-  const oi = parseFloat(d.openInterest);
-  return {
-    openInterest:    oi,
-    openInterestUsd: 0, // will be computed from markPrice outside
-  };
+  return { openInterest: parseFloat(d.openInterest), openInterestUsd: 0 };
 }
 
-async function fetchLSR(symbol: string, signal: AbortSignal): Promise<Pick<FuturesData, 'longShortRatio' | 'longPct' | 'shortPct'>> {
-  const res = await fetch(
-    `https://fapi.binance.com/futures/data/topLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`,
-    { signal }
-  );
+async function fetchLSR(symbol: string, signal: AbortSignal) {
+  const raw = `https://fapi.binance.com/futures/data/topLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`;
+  const res = await fetch(resolveRestUrl(raw), { signal });
   if (!res.ok) throw new Error('LSR failed');
   const data = await res.json() as RawLSR[];
   const d = data[0];
@@ -75,22 +67,17 @@ export function useFutures(symbol: string) {
   const fetchAll = useCallback(async () => {
     const controller = new AbortController();
     const SYM = symbol.toUpperCase();
-
     try {
       const [fmResult, oiResult, lsrResult] = await Promise.allSettled([
         fetchFundingAndMark(SYM, controller.signal),
         fetchOI(SYM, controller.signal),
         fetchLSR(SYM, controller.signal),
       ]);
-
       if (!mountedRef.current) return;
-
       const fm  = fmResult.status  === 'fulfilled' ? fmResult.value  : null;
       const oi  = oiResult.status  === 'fulfilled' ? oiResult.value  : null;
       const lsr = lsrResult.status === 'fulfilled' ? lsrResult.value : null;
-
       if (!fm) { setError(true); return; }
-
       setData({
         fundingRate:     fm.fundingRate,
         markPrice:       fm.markPrice,
