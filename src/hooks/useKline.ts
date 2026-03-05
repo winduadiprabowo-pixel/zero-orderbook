@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useBinanceWs } from './useBinanceWs';
+import { useBinanceWs, resolveRestUrl } from './useBinanceWs';
 import type { KlineData, ConnectionStatus, Interval } from '@/types/market';
 
 export function useKline(symbol: string, interval: Interval) {
@@ -14,10 +14,8 @@ export function useKline(symbol: string, interval: Interval) {
 
     (async () => {
       try {
-        const res = await fetch(
-          `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=300`,
-          { signal: controller.signal }
-        );
+        const raw = `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=300`;
+        const res = await fetch(resolveRestUrl(raw), { signal: controller.signal });
         if (!res.ok) return;
         const data = await res.json() as unknown[][];
         const klines: KlineData[] = data.map((k) => ({
