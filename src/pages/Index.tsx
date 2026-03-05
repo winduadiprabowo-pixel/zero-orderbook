@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
-import Header         from '@/components/Header';
+import Header             from '@/components/Header';
 import OrderBook, { PressureBar } from '@/components/OrderBook';
 import CandlestickChart   from '@/components/CandlestickChart';
 import DepthChart         from '@/components/DepthChart';
@@ -16,14 +16,14 @@ import { useGlobalStats } from '@/hooks/useGlobalStats';
 
 import { SYMBOLS, type Interval, type Precision, type ConnectionStatus } from '@/types/market';
 
-// ─── Mobile tab ──────────────────────────────────────────────────────────────
+// ─── Mobile tab ───────────────────────────────────────────────────────────────
 
 type MobileTab = 'book' | 'chart' | 'depth' | 'trades' | 'liqs';
 
 const MOBILE_TABS: { id: MobileTab; label: string; icon: string }[] = [
-  { id: 'book',   label: 'Book',   icon: '◫' },
-  { id: 'chart',  label: 'Chart',  icon: '▦' },
-  { id: 'depth',  label: 'Depth',  icon: '◈' },
+  { id: 'book',   label: 'Book',   icon: '◫'  },
+  { id: 'chart',  label: 'Chart',  icon: '▦'  },
+  { id: 'depth',  label: 'Depth',  icon: '◈'  },
   { id: 'trades', label: 'Trades', icon: '⚡' },
   { id: 'liqs',   label: 'Liqs',   icon: '💀' },
 ];
@@ -40,20 +40,21 @@ const MobileTabBtn: React.FC<{
       flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
       justifyContent: 'center', gap: '2px',
       padding: '6px 2px', border: 'none', cursor: 'pointer',
-      fontFamily: 'inherit', minHeight: '48px',
+      fontFamily: 'inherit', minHeight: '52px',
       background: active ? 'rgba(255,255,255,0.05)' : 'transparent',
-      color: active ? 'var(--text-primary)' : 'var(--text-muted)',
-      borderTop: active ? '2px solid var(--bid-color)' : '2px solid transparent',
+      color:      active ? 'var(--text-primary)'    : 'var(--text-muted)',
+      borderTop:  active ? '2px solid var(--bid-color)' : '2px solid transparent',
       fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+      transition: 'color 120ms, background 120ms',
     }}
   >
-    <span style={{ fontSize: '14px', lineHeight: 1 }}>{tab.icon}</span>
+    <span style={{ fontSize: '15px', lineHeight: 1 }}>{tab.icon}</span>
     <span>{tab.label}</span>
   </button>
 ));
 MobileTabBtn.displayName = 'MobileTabBtn';
 
-// ─── Banner ───────────────────────────────────────────────────────────────────
+// ─── Connection Banner ────────────────────────────────────────────────────────
 
 const ConnectionBanner: React.FC<{ status: ConnectionStatus; onRetry: () => void }> = React.memo(
   ({ status, onRetry }) => {
@@ -63,7 +64,8 @@ const ConnectionBanner: React.FC<{ status: ConnectionStatus; onRetry: () => void
       <div style={{
         display: 'flex', alignItems: 'center', gap: '8px',
         padding: '5px 16px', flexShrink: 0,
-        background: isReconn ? 'rgba(242,142,44,0.10)' : 'rgba(239,83,80,0.10)',
+        background: isReconn ? 'rgba(242,142,44,0.08)' : 'rgba(239,83,80,0.08)',
+        borderBottom: `1px solid ${isReconn ? 'rgba(242,142,44,0.15)' : 'rgba(239,83,80,0.15)'}`,
         color: isReconn ? 'var(--gold)' : 'var(--ask-color)',
         fontSize: '10px', fontWeight: 700,
       }}>
@@ -71,12 +73,12 @@ const ConnectionBanner: React.FC<{ status: ConnectionStatus; onRetry: () => void
           className="live-dot"
           style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'currentColor', flexShrink: 0 }}
         />
-        {isReconn ? 'Reconnecting to Binance...' : 'Connection lost'}
+        {isReconn ? 'Reconnecting to Binance...' : 'Connection lost — data may be stale'}
         {!isReconn && (
           <button
             onClick={onRetry}
             style={{
-              marginLeft: '4px', padding: '1px 10px',
+              marginLeft: '4px', padding: '2px 10px',
               border: '1px solid var(--ask-color)', borderRadius: '2px',
               background: 'transparent', color: 'var(--ask-color)',
               cursor: 'pointer', fontFamily: 'inherit',
@@ -92,7 +94,7 @@ const ConnectionBanner: React.FC<{ status: ConnectionStatus; onRetry: () => void
 );
 ConnectionBanner.displayName = 'ConnectionBanner';
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 const Index: React.FC = () => {
   const [activeSymbol, setActiveSymbol] = useState('btcusdt');
@@ -108,10 +110,10 @@ const Index: React.FC = () => {
 
   const { bids, asks, status: obStatus, lastUpdate, retry: obRetry } = useOrderBook(activeSymbol);
   const { ticker, status: tickerStatus }                              = useTicker(activeSymbol);
-  const { trades }                                                     = useTrades(activeSymbol);
-  const { candles }                                                    = useKline(activeSymbol, interval);
-  const { events: liqEvents, stats: liqStats, wsStatus: liqStatus }   = useLiquidations();
-  const globalStats                                                    = useGlobalStats();
+  const { trades }                                                    = useTrades(activeSymbol);
+  const { candles }                                                   = useKline(activeSymbol, interval);
+  const { events: liqEvents, stats: liqStats, wsStatus: liqStatus }  = useLiquidations();
+  const globalStats                                                   = useGlobalStats();
 
   const midPrice = useMemo(() => {
     if (!bids.length || !asks.length) return null;
@@ -137,12 +139,11 @@ const Index: React.FC = () => {
     return t > 0 ? (bv / t) * 100 : 50;
   }, [bids, asks]);
 
-  const handleSymbolChange = useCallback((sym: string) => {
+  const handleSymbolChange   = useCallback((sym: string) => {
     setActiveSymbol(sym);
     prevMidRef.current = null;
   }, []);
-
-  const handleIntervalChange = useCallback((i: Interval) => setIntervalState(i), []);
+  const handleIntervalChange  = useCallback((i: Interval) => setIntervalState(i), []);
   const handlePrecisionChange = useCallback((p: Precision) => setPrecision(p), []);
 
   return (
@@ -162,7 +163,7 @@ const Index: React.FC = () => {
 
       <ConnectionBanner status={overallStatus} onRetry={obRetry} />
 
-      {/* ── Desktop layout: 4-col (orderbook | charts | market+trades | liqs) ── */}
+      {/* ── Desktop layout: 4-col ── */}
       <div
         className="desktop-layout"
         style={{
@@ -171,8 +172,8 @@ const Index: React.FC = () => {
           background: 'var(--border-subtle)',
         }}
       >
-        {/* Col 1: Order Book — 270px */}
-        <div style={{ width: '270px', flexShrink: 0, background: 'var(--app-bg)', overflow: 'hidden' }}>
+        {/* Col 1: Order Book */}
+        <div style={{ width: '280px', flexShrink: 0, background: 'var(--app-bg)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <OrderBook
             bids={bids} asks={asks}
             midPrice={midPrice} prevMidPrice={prevMidPrice}
@@ -180,9 +181,9 @@ const Index: React.FC = () => {
           />
         </div>
 
-        {/* Col 2: Candle + Depth — flex */}
+        {/* Col 2: Candle + Depth */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1px', minWidth: 0, background: 'var(--app-bg)' }}>
-          <div style={{ flex: 63, minHeight: 0, background: 'var(--app-bg)' }}>
+          <div style={{ flex: 65, minHeight: 0, background: 'var(--app-bg)' }}>
             <CandlestickChart
               candles={candles}
               interval={interval}
@@ -190,13 +191,13 @@ const Index: React.FC = () => {
               symbol={activeSymbol}
             />
           </div>
-          <div style={{ flex: 37, minHeight: 0, background: 'var(--app-bg)' }}>
+          <div style={{ flex: 35, minHeight: 0, background: 'var(--app-bg)' }}>
             <DepthChart bids={bids} asks={asks} midPrice={midPrice} />
           </div>
         </div>
 
-        {/* Col 3: Market data + Recent trades — 210px */}
-        <div style={{ width: '210px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '1px', background: 'var(--app-bg)' }}>
+        {/* Col 3: Market data + Recent trades */}
+        <div style={{ width: '220px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '1px', background: 'var(--app-bg)' }}>
           <div style={{ flexShrink: 0, background: 'var(--app-bg)' }}>
             <MarketData ticker={ticker} symbolInfo={symbolInfo} />
           </div>
@@ -205,22 +206,22 @@ const Index: React.FC = () => {
           </div>
         </div>
 
-        {/* Col 4: Liquidation feed — 210px */}
-        <div style={{ width: '210px', flexShrink: 0, background: 'var(--app-bg)', overflow: 'hidden' }}>
+        {/* Col 4: Liquidation feed */}
+        <div style={{ width: '220px', flexShrink: 0, background: 'var(--app-bg)', overflow: 'hidden' }}>
           <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />
         </div>
       </div>
 
-      {/* ── Tablet layout (768–1279): hide col 3+4, orderbook narrower ── */}
+      {/* ── Tablet 768–1279: hide col 3+4 ── */}
       <style>{`
         @media (min-width: 768px) and (max-width: 1279px) {
           .desktop-layout > div:nth-child(3),
           .desktop-layout > div:nth-child(4) { display: none !important; }
-          .desktop-layout > div:first-child   { width: 240px !important; }
+          .desktop-layout > div:first-child   { width: 260px !important; }
         }
       `}</style>
 
-      {/* ── Mobile content ── */}
+      {/* ── Mobile layout ── */}
       <div
         className="mobile-only"
         style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
@@ -247,10 +248,8 @@ const Index: React.FC = () => {
           )}
         </div>
 
-        {/* Pressure bar always visible on mobile */}
         {mobileTab === 'book' && <PressureBar bidPercent={bidPressure} />}
 
-        {/* Mobile bottom tabs */}
         <div style={{
           display: 'flex',
           borderTop: '1px solid var(--border-subtle)',
@@ -269,7 +268,7 @@ const Index: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Desktop show/hide media ── */}
+      {/* ── Desktop/mobile show-hide ── */}
       <style>{`
         @media (max-width: 767px) {
           .desktop-layout { display: none !important; }
@@ -277,8 +276,6 @@ const Index: React.FC = () => {
         @media (min-width: 768px) {
           .mobile-only { display: none !important; }
         }
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .desktop-layout { display: flex; }
       `}</style>
     </div>
