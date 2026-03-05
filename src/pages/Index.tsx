@@ -21,6 +21,9 @@ import ResizeHandle               from '@/components/ResizeHandle';
 import SymbolSearch               from '@/components/SymbolSearch';
 
 
+import LicenseModal, { ProLock } from '@/components/LicenseGate';
+import { useProAccess }          from '@/hooks/useProAccess';
+
 import { useOrderBook }    from '@/hooks/useOrderBook';
 import { useTicker }       from '@/hooks/useTicker';
 import { useTrades }       from '@/hooks/useTrades';
@@ -143,6 +146,8 @@ PanelHeader.displayName = 'PanelHeader';
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const Index: React.FC = () => {
+  const { isPro, unlock }       = useProAccess();
+  const [showProModal,  setShowProModal]  = useState(false);
   const [activeSymbol,  setActiveSymbol]  = useState('btcusdt');
   const [interval,      setIntervalState] = useState<Interval>('15m');
   const [precision,     setPrecision]     = useState<Precision>('0.01');
@@ -213,6 +218,9 @@ const Index: React.FC = () => {
   const handleOpenMarkets     = useCallback(() => setShowMarkets(true), []);
   const handleCloseMarkets    = useCallback(() => setShowMarkets(false), []);
   const handleToggleSidebar   = useCallback(() => setSidebarOpen((o) => !o), []);
+  const handleOpenProModal    = useCallback(() => setShowProModal(true), []);
+  const handleCloseProModal   = useCallback(() => setShowProModal(false), []);
+  const handleUnlock          = useCallback((key: string) => { unlock(key); setShowProModal(false); }, [unlock]);
 
   const P: React.CSSProperties = {
     background: 'rgba(16,19,28,1)',
@@ -239,22 +247,28 @@ const Index: React.FC = () => {
   );
 
   const depthPanel = (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(16,19,28,1)' }}>
-      <PanelHeader title="DEPTH CHART" />
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <DepthChart bids={bids} asks={asks} midPrice={midPrice} />
+    <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="DEPTH CHART">
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(16,19,28,1)' }}>
+        <PanelHeader title="DEPTH CHART" />
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <DepthChart bids={bids} asks={asks} midPrice={midPrice} />
+        </div>
       </div>
-    </div>
+    </ProLock>
   );
 
   const tradesPanel = <RecentTrades trades={trades} />;
   const liqsPanel = (
-    <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />
+    <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="LIQUIDATION FEED">
+      <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />
+    </ProLock>
   );
   const marketDataPanel = (
-    <div style={{ ...P, overflowY: 'auto' }} className="hide-scrollbar">
-      <MarketData ticker={ticker} symbolInfo={symbolInfo} />
-    </div>
+    <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="MARKET DATA">
+      <div style={{ ...P, overflowY: 'auto' }} className="hide-scrollbar">
+        <MarketData ticker={ticker} symbolInfo={symbolInfo} />
+      </div>
+    </ProLock>
   );
 
   return (
@@ -270,12 +284,17 @@ const Index: React.FC = () => {
         activeSymbol={activeSymbol}
         symbolInfo={symbolInfo}
         onOpenMarkets={handleOpenMarkets}
+        onOpenPro={handleOpenProModal}
         status={overallStatus}
         lastUpdate={lastUpdate}
         ticker={ticker}
         globalStats={globalStats}
       />
       <ConnectionBanner status={overallStatus} onRetry={obRetry} />
+
+      {showProModal && (
+        <LicenseModal onUnlock={handleUnlock} onClose={handleCloseProModal} />
+      )}
 
       {/* ══════════════════════════ DESKTOP ≥1280px ══════════════════════════ */}
       <div className="layout-desktop" style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
