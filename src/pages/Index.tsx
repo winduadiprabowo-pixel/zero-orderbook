@@ -64,6 +64,13 @@ const Index: React.FC = () => {
     return 'reconnecting';
   }, [obStatus, tickerStatus]);
 
+  const bidPressure = useMemo(() => {
+    const bidVol = bids.reduce((s, b) => s + b.size, 0);
+    const askVol = asks.reduce((s, a) => s + a.size, 0);
+    const total = bidVol + askVol;
+    return total > 0 ? (bidVol / total * 100) : 50;
+  }, [bids, asks]);
+
   const handleSymbolChange = useCallback((sym: string) => {
     setActiveSymbol(sym);
     prevMidRef.current = null;
