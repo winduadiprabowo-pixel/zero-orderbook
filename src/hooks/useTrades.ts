@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { getReconnectDelay } from '@/lib/formatters';
 import type { Trade, ConnectionStatus } from '@/types/market';
 
-const PROXY_WS = 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
+const PROXY_WS  = 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 const MAX_TRADES = 50;
 
 export function useTrades(symbol: string) {
@@ -16,7 +16,7 @@ export function useTrades(symbol: string) {
 
   const connect = useCallback((attempt = 0) => {
     if (!mountedRef.current) return;
-    // FIX: lowercase symbol untuk Binance WS stream
+    // WS stream: LOWERCASE
     const wsUrl = PROXY_WS + '/ws/' + symbol.toLowerCase() + '@trade';
     setStatus('reconnecting');
     try {
@@ -26,13 +26,15 @@ export function useTrades(symbol: string) {
       ws.onmessage = (event: MessageEvent) => {
         if (!mountedRef.current) return;
         try {
-          const d = JSON.parse(event.data as string) as { t: number; p: string; q: string; m: boolean; T: number };
+          const d = JSON.parse(event.data as string) as {
+            t: number; p: string; q: string; m: boolean; T: number;
+          };
           if (!d.p) return;
           const trade: Trade = {
-            id: String(idRef.current++),
-            time: d.T || Date.now(),
-            price: parseFloat(d.p),
-            size: parseFloat(d.q),
+            id:           String(idRef.current++),
+            time:         d.T || Date.now(),
+            price:        parseFloat(d.p),
+            size:         parseFloat(d.q),
             isBuyerMaker: d.m,
           };
           setTrades((prev) => [trade, ...prev].slice(0, MAX_TRADES));
@@ -41,11 +43,15 @@ export function useTrades(symbol: string) {
       ws.onclose = () => {
         if (!mountedRef.current) return;
         setStatus('disconnected');
-        timeoutRef.current = setTimeout(() => { if (mountedRef.current) connect(attempt + 1); }, getReconnectDelay(attempt));
+        timeoutRef.current = setTimeout(() => {
+          if (mountedRef.current) connect(attempt + 1);
+        }, getReconnectDelay(attempt));
       };
       ws.onerror = () => ws.close();
     } catch {
-      timeoutRef.current = setTimeout(() => { if (mountedRef.current) connect(attempt + 1); }, getReconnectDelay(attempt));
+      timeoutRef.current = setTimeout(() => {
+        if (mountedRef.current) connect(attempt + 1);
+      }, getReconnectDelay(attempt));
     }
   }, [symbol]);
 
