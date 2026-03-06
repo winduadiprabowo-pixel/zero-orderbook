@@ -23,15 +23,12 @@ import React, {
 } from 'react';
 import {
   createChart,
-  CandlestickSeries,
-  HistogramSeries,
+  CrosshairMode,
   type IChartApi,
   type ISeriesApi,
   type CandlestickData,
   type HistogramData,
   type Time,
-  type CrosshairMode,
-  CrosshairMode as CM,
   type MouseEventParams,
 } from 'lightweight-charts';
 import type { Interval, TickerData, SymbolInfo } from '@/types/market';
@@ -309,7 +306,7 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
         horzLines: { color: 'rgba(255,255,255,0.03)' },
       },
       crosshair: {
-        mode: CM.Normal as CrosshairMode,
+        mode: CrosshairMode.Normal,
         vertLine: { color: 'rgba(255,255,255,0.20)', labelBackgroundColor: 'rgba(16,19,28,1)' },
         horzLine: { color: 'rgba(255,255,255,0.20)', labelBackgroundColor: 'rgba(16,19,28,1)' },
       },
@@ -330,7 +327,7 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
     });
 
     // Candlestick series
-    const candleSer = chart.addSeries(CandlestickSeries, {
+    const candleSer = chart.addCandlestickSeries({
       upColor:            'rgba(38,166,154,1)',
       downColor:          'rgba(239,83,80,1)',
       borderUpColor:      'rgba(38,166,154,1)',
@@ -344,7 +341,7 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
     });
 
     // Volume histogram — separate price scale
-    const volSer = chart.addSeries(HistogramSeries, {
+    const volSer = chart.addHistogramSeries({
       color:            'rgba(38,166,154,0.35)',
       priceFormat:      { type: 'volume' },
       priceScaleId:     'vol',
