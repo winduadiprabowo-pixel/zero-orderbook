@@ -1,10 +1,11 @@
 /**
- * TradingViewChart.tsx — ZERØ ORDER BOOK v38
- * Mobile: stats strip (price + high/low/vol) di atas chart — Coinglass-style
+ * TradingViewChart.tsx — ZERØ ORDER BOOK v43
+ * FIX: Widget rebuild ONLY on symbol change.
+ *      Interval change → postMessage setInterval → drawings PRESERVED.
  * rgba() only ✓ · IBM Plex Mono ✓ · React.memo ✓ · displayName ✓
  */
 
-import React, { useEffect, useRef, useCallback, useState, memo, useMemo } from 'react';
+import React, { useEffect, useRef, useCallback, useState, memo } from 'react';
 import type { Interval, TickerData, SymbolInfo } from '@/types/market';
 import { formatCompact } from '@/lib/formatters';
 
@@ -163,17 +164,38 @@ StatItem.displayName = 'StatItem';
 const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
   symbol, interval, onIntervalChange, ticker, symbolInfo,
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const widgetRef    = useRef<HTMLDivElement | null>(null);
-  const scriptRef    = useRef<HTMLScriptElement | null>(null);
+  const containerRef  = useRef<HTMLDivElement>(null);
+  const widgetRef     = useRef<HTMLDivElement | null>(null);
+  const scriptRef     = useRef<HTMLScriptElement | null>(null);
+  const iframeRef     = useRef<HTMLIFrameElement | null>(null);
+  const intervalRef   = useRef<Interval>(interval);
+  const symbolRef     = useRef<string>(symbol);
+
+  // Interval change → postMessage to TradingView iframe (drawings PRESERVED)
+  useEffect(() => {
+    intervalRef.current = interval;
+    const iframe = iframeRef.current
+      ?? (containerRef.current?.querySelector('iframe') as HTMLIFrameElement | null);
+    if (iframe) {
+      iframeRef.current = iframe;
+      try {
+        iframe.contentWindow?.postMessage(
+          { name: 'set-symbol', data: { symbol: toTvSymbol(symbolRef.current), interval: TV_INTERVAL_MAP[interval] } },
+          '*'
+        );
+      } catch { /* cross-origin guard */ }
+    }
+  }, [interval]);
 
   const buildWidget = useCallback(() => {
     if (!containerRef.current) return;
     if (widgetRef.current) { widgetRef.current.remove(); widgetRef.current = null; }
     if (scriptRef.current) { scriptRef.current.remove(); scriptRef.current = null; }
+    iframeRef.current = null;
+    symbolRef.current = symbol;
 
     const tvSymbol   = toTvSymbol(symbol);
-    const tvInterval = TV_INTERVAL_MAP[interval];
+    const tvInterval = TV_INTERVAL_MAP[intervalRef.current];
 
     const wrapper = document.createElement('div');
     wrapper.className = 'tradingview-widget-container';
@@ -251,7 +273,8 @@ const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
     };
     document.head.appendChild(script);
     scriptRef.current = script;
-  }, [symbol, interval]);
+  // Rebuild ONLY on symbol change — interval handled via postMessage
+  }, [symbol]);
 
   useEffect(() => {
     buildWidget();
