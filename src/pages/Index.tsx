@@ -353,8 +353,16 @@ MobileMarketList.displayName = 'MobileMarketList';
 const Index: React.FC = () => {
   const { isPro, unlock }      = useProAccess();
   const [showProModal,  setShowProModal]  = useState(false);
-  const [activeSymbol,  setActiveSymbol]  = useState('btcusdt');
-  const [interval,      setIntervalState] = useState<Interval>('15m');
+  // Persist symbol + interval across refreshes
+  const [activeSymbol, setActiveSymbol] = useState<string>(() => {
+    try { return localStorage.getItem('zero_symbol') ?? 'btcusdt'; } catch { return 'btcusdt'; }
+  });
+  const [interval, setIntervalState] = useState<Interval>(() => {
+    try {
+      const saved = localStorage.getItem('zero_interval') as Interval | null;
+      return saved && ['1m','5m','15m','1h','4h','1d'].includes(saved) ? saved : '15m';
+    } catch { return '15m'; }
+  });
   const [precision,     setPrecision]     = useState<Precision>('0.01');
   const [mobileTab,     setMobileTab]     = useState<MobileTab>('markets');
   const [tabletBottom,  setTabletBottom]  = useState<TabletBottomTab>('depth');
@@ -409,6 +417,7 @@ const Index: React.FC = () => {
 
   const handleSymbolChange = useCallback((sym: string) => {
     setActiveSymbol(sym);
+    try { localStorage.setItem('zero_symbol', sym); } catch {}
     prevMidRef.current = null;
     const found = pairs.find((p) => p.symbol === sym);
     if (found) {
@@ -420,7 +429,10 @@ const Index: React.FC = () => {
     setMobileTab('chart');
   }, [pairs]);
 
-  const handleIntervalChange  = useCallback((i: Interval) => setIntervalState(i), []);
+  const handleIntervalChange  = useCallback((i: Interval) => {
+    setIntervalState(i);
+    try { localStorage.setItem('zero_interval', i); } catch {}
+  }, []);
   const handlePrecisionChange = useCallback((p: Precision) => setPrecision(p), []);
   const handleOpenMarkets     = useCallback(() => setShowMarkets(true), []);
   const handleCloseMarkets    = useCallback(() => setShowMarkets(false), []);
@@ -642,6 +654,7 @@ const Index: React.FC = () => {
       <div className="layout-mobile" style={{
         flex: 1, overflow: 'hidden',
         display: 'flex', flexDirection: 'column',
+        touchAction: 'pan-y',
       }}>
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
           {/* MARKETS — coin list, tap to go to chart */}
