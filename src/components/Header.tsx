@@ -1,6 +1,7 @@
 /**
- * Header.tsx — ZERØ ORDER BOOK v38
- * FIX MOBILE: harga tidak kepotong — hide "ORDER BOOK" label + timestamp di mobile.
+ * Header.tsx — ZERØ ORDER BOOK v39
+ * UPGRADE: Feed latency indicator (FeedLatency component)
+ * FIX MOBILE: harga tidak kepotong
  * rgba() only ✓ · IBM Plex Mono ✓ · React.memo ✓ · displayName ✓
  */
 
@@ -8,6 +9,7 @@ import React, { useMemo } from 'react';
 import type { ConnectionStatus, SymbolInfo, TickerData, GlobalStats } from '@/types/market';
 import { formatCompact, fearGreedColor } from '@/lib/formatters';
 import CoinLogo from '@/components/CoinLogo';
+import FeedLatency from '@/components/FeedLatency';
 
 interface HeaderProps {
   activeSymbol:  string;
@@ -18,11 +20,12 @@ interface HeaderProps {
   lastUpdate:    number;
   ticker:        TickerData | null;
   globalStats:   GlobalStats;
+  latencyMs:     number | null;
 }
 
 const Header: React.FC<HeaderProps> = React.memo(({
   activeSymbol, symbolInfo, onOpenMarkets, onOpenPro,
-  status, lastUpdate, ticker, globalStats,
+  status, lastUpdate, ticker, globalStats, latencyMs,
 }) => {
   const statusColor = useMemo(() => {
     if (status === 'connected')    return 'rgba(38,166,154,1)';
@@ -96,7 +99,6 @@ const Header: React.FC<HeaderProps> = React.memo(({
           <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '0.03em', color: 'rgba(242,142,44,1)' }}>
             ZERØ
           </span>
-          {/* Hidden on mobile — saves ~80px */}
           <span className="header-subtitle" style={{
             fontSize: '8px', color: 'rgba(255,255,255,0.22)', fontWeight: 500,
             letterSpacing: '0.04em', marginLeft: '1px',
@@ -148,12 +150,12 @@ const Header: React.FC<HeaderProps> = React.memo(({
           </svg>
         </button>
 
-        {/* ── Price + change — flex-shrink allowed, min-width: 0 ── */}
+        {/* ── Price + change ── */}
         {ticker && (
           <div style={{
             display: 'flex', alignItems: 'baseline', gap: '5px',
             marginLeft: '10px',
-            flexShrink: 1,   // ← kunci: boleh menyempit
+            flexShrink: 1,
             minWidth: 0,
             overflow: 'hidden',
           }}>
@@ -201,23 +203,29 @@ const Header: React.FC<HeaderProps> = React.memo(({
 
         <div style={{ width: '1px', height: '18px', background: 'rgba(255,255,255,0.07)', flexShrink: 0, marginLeft: '10px' }} />
 
-        {/* ── Status ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, margin: '0 10px' }}>
-          <div
-            className="live-dot"
-            style={{ width: '5px', height: '5px', borderRadius: '50%', background: statusColor }}
-          />
-          <span style={{ fontSize: '9px', fontWeight: 700, color: statusColor, letterSpacing: '0.10em' }}>
-            {statusLabel}
-          </span>
-          {/* Timestamp — hidden on mobile */}
-          {timeStr && (
-            <span className="header-timestamp" style={{
-              fontSize: '9px', color: 'rgba(255,255,255,0.14)', letterSpacing: '0.04em',
-            }}>
-              {timeStr}
+        {/* ── Feed Latency + Status ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, margin: '0 10px' }}>
+          {/* Feed latency — desktop only */}
+          <div className="desktop-stats">
+            <FeedLatency latencyMs={latencyMs} />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <div
+              className="live-dot"
+              style={{ width: '5px', height: '5px', borderRadius: '50%', background: statusColor }}
+            />
+            <span style={{ fontSize: '9px', fontWeight: 700, color: statusColor, letterSpacing: '0.10em' }}>
+              {statusLabel}
             </span>
-          )}
+            {timeStr && (
+              <span className="header-timestamp" style={{
+                fontSize: '9px', color: 'rgba(255,255,255,0.14)', letterSpacing: '0.04em',
+              }}>
+                {timeStr}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* ── PRO CTA ── */}
@@ -242,7 +250,6 @@ const Header: React.FC<HeaderProps> = React.memo(({
       </div>
 
       <style>{`
-        /* Mobile: hide non-essential header elements */
         @media (max-width: 767px) {
           .header-subtitle   { display: none !important; }
           .header-timestamp  { display: none !important; }
