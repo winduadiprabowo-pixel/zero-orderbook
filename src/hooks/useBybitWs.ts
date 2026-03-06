@@ -1,7 +1,7 @@
 /**
- * useBybitWs.ts — ZERØ ORDER BOOK v37
- * Base hook untuk semua Bybit WebSocket connections.
- * Bybit pakai subscribe pattern: kirim {"op":"subscribe","args":[...topics]}
+ * useBybitWs.ts — ZERØ ORDER BOOK v38
+ * FIX: re-subscribe + reconnect waktu topics berubah (symbol ganti).
+ * Bybit pakai subscribe pattern: {"op":"subscribe","args":[...topics]}
  * Ping setiap 20s agar koneksi tidak disconnect.
  */
 import { useEffect, useRef, useCallback } from 'react';
@@ -43,13 +43,14 @@ export function useBybitWs({
   const pingRef     = useRef<ReturnType<typeof setInterval>>();
   const onMsgRef    = useRef(onMessage);
   const onStatusRef = useRef(onStatusChange);
-  const topicsRef   = useRef(topics);
   const rafRef      = useRef<number>();
   const pendingRef  = useRef<unknown[]>([]);
 
+  // Stringify topics so we can detect changes
+  const topicsKey = topics.join(',');
+
   onMsgRef.current    = onMessage;
   onStatusRef.current = onStatusChange;
-  topicsRef.current   = topics;
 
   const flush = useCallback(() => {
     const msgs = pendingRef.current.splice(0);
@@ -64,7 +65,21 @@ export function useBybitWs({
     });
   }, [flush]);
 
-  const connect = useCallback((attempt = 0) => {
+  // Teardown helper — close WS + clear timers, no reconnect
+  const teardown = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (pingRef.current)    clearInterval(pingRef.current);
+    if (rafRef.current)     cancelAnimationFrame(rafRef.current);
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.onerror = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    pendingRef.current = [];
+  }, []);
+
+  const connect = useCallback((attempt = 0, currentTopics: string[]) => {
     if (!mountedRef.current || !enabled) return;
     const wsUrl = resolveBybitWsUrl(category);
     onStatusRef.current?.('reconnecting');
@@ -76,9 +91,7 @@ export function useBybitWs({
       ws.onopen = () => {
         if (!mountedRef.current) return;
         onStatusRef.current?.('connected');
-        // Subscribe to requested topics
-        ws.send(JSON.stringify({ op: 'subscribe', args: topicsRef.current }));
-        // Bybit drops idle connections — ping every 20s
+        ws.send(JSON.stringify({ op: 'subscribe', args: currentTopics }));
         pingRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ op: 'ping' }));
@@ -90,11 +103,10 @@ export function useBybitWs({
         if (!mountedRef.current) return;
         try {
           const data = JSON.parse(event.data as string) as Record<string, unknown>;
-          // Skip control frames — pong + subscription confirmations
           if (data.op === 'pong' || data.op === 'subscribe') return;
           pendingRef.current.push(data);
           scheduleFlush();
-        } catch { /* malformed frame — ignore */ }
+        } catch { /* malformed frame */ }
       };
 
       ws.onclose = () => {
@@ -102,41 +114,35 @@ export function useBybitWs({
         if (pingRef.current) clearInterval(pingRef.current);
         onStatusRef.current?.('disconnected');
         timeoutRef.current = setTimeout(() => {
-          if (mountedRef.current) connect(attempt + 1);
+          if (mountedRef.current) connect(attempt + 1, currentTopics);
         }, getReconnectDelay(attempt));
       };
 
       ws.onerror = () => ws.close();
     } catch {
       timeoutRef.current = setTimeout(() => {
-        if (mountedRef.current) connect(attempt + 1);
+        if (mountedRef.current) connect(attempt + 1, currentTopics);
       }, getReconnectDelay(attempt));
     }
-  }, [category, enabled, scheduleFlush]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [category, enabled, scheduleFlush, teardown]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const retry = useCallback(() => {
-    if (timeoutRef.current)  clearTimeout(timeoutRef.current);
-    if (pingRef.current)     clearInterval(pingRef.current);
-    if (rafRef.current)      cancelAnimationFrame(rafRef.current);
-    if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
-    connect(0);
-  }, [connect]);
+    teardown();
+    connect(0, topics);
+  }, [teardown, connect, topics]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-run when topics change (symbol change) or enabled/category change
   useEffect(() => {
     mountedRef.current = true;
-    if (enabled) connect(0);
+    if (enabled) {
+      teardown(); // close old WS first
+      connect(0, topics);
+    }
     return () => {
       mountedRef.current = false;
-      if (timeoutRef.current)  clearTimeout(timeoutRef.current);
-      if (pingRef.current)     clearInterval(pingRef.current);
-      if (rafRef.current)      cancelAnimationFrame(rafRef.current);
-      if (wsRef.current) {
-        wsRef.current.onclose = null;
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      teardown();
     };
-  }, [connect, enabled]);
+  }, [topicsKey, category, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { retry };
 }
