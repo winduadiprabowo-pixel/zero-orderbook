@@ -1,13 +1,15 @@
 /**
- * useMultiExchangeWs.ts — ZERØ ORDER BOOK v46
+ * useMultiExchangeWs.ts — ZERØ ORDER BOOK v47
  *
- * FIX v46 (audit):
- *   1. RAF message queue — buffer ALL messages per frame, flush semua sekaligus.
- *      Old: `if (rafRef.current) return` → drop messages saat frame pending.
- *      New: queue push + RAF flush — zero dropped messages.
- *   2. Batch setState — semua state update dari 1 message di-merge jadi 1 setState call.
- *      Old: parseBybit bisa trigger 3 setState (bids/asks + trades + ticker) per message.
- *      New: build partial update object, apply in 1 setState at RAF flush.
+ * FIX v47:
+ *   Bybit WS auto-fallback ke Binance.
+ *   Bybit direct WS di-block di beberapa ISP/region (Indonesia included).
+ *   Fix: attempt Bybit dulu (BYBIT_TIMEOUT_MS), kalau gagal → switch ke Binance.
+ *   Data tetap mengalir transparan. activeFeed di state memberi tahu UI feed mana yang aktif.
+ *
+ * v46 fixes tetap berlaku:
+ *   1. RAF message queue — buffer ALL messages per frame, zero dropped.
+ *   2. Batch setState — semua partial updates dari 1 frame di-merge jadi 1 setState call.
  *   3. parsers return Partial<ExchangeState> — pure, no side effects.
  *
  * rgba() only ✓ · RAF-gated ✓ · mountedRef ✓ · zero dropped messages ✓
@@ -15,13 +17,11 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { ConnectionStatus } from '@/types/market';
 import type { ExchangeId } from './useExchange';
-import { getWsUrl, getSubscribeMsg, toExchangeSymbol } from './useExchange';
+import { getWsUrl, getSubscribeMsg } from './useExchange';
 import { getReconnectDelay } from '@/lib/formatters';
 import type { OrderBookLevel2 } from './useOrderBook';
 import type { CvdPoint } from './useTrades';
 import type { Trade, TickerData } from '@/types/market';
-
-// ── Normalised output ─────────────────────────────────────────────────────────
 
 export interface ExchangeState {
   bids:       OrderBookLevel2[];
@@ -31,14 +31,15 @@ export interface ExchangeState {
   cvdPoints:  CvdPoint[];
   status:     ConnectionStatus;
   latencyMs:  number | null;
+  activeFeed: ExchangeId;
 }
 
 const EMPTY_STATE: ExchangeState = {
   bids: [], asks: [], trades: [], ticker: null, cvdPoints: [],
-  status: 'disconnected', latencyMs: null,
+  status: 'disconnected', latencyMs: null, activeFeed: 'bybit',
 };
 
-// ── PriceMap helpers ──────────────────────────────────────────────────────────
+const BYBIT_TIMEOUT_MS = 5_000;
 
 type PriceMap = Map<string, number>;
 const WHALE = 100_000;
@@ -62,38 +63,39 @@ function mapToLevels(map: PriceMap, isAsk: boolean, levels: number): OrderBookLe
   });
 }
 
-// ── Hook ──────────────────────────────────────────────────────────────────────
+function getBinanceCombinedUrl(symbol: string): string {
+  const sym = symbol.toLowerCase();
+  return `wss://stream.binance.com:9443/stream?streams=${sym}@depth20@100ms/${sym}@trade/${sym}@ticker`;
+}
 
 export function useMultiExchangeWs(
   exchange: ExchangeId,
   symbol:   string,
   levels = 50,
 ): ExchangeState {
-  const [state, setState] = useState<ExchangeState>({ ...EMPTY_STATE });
+  const [state, setState] = useState<ExchangeState>({ ...EMPTY_STATE, activeFeed: exchange });
 
-  const wsRef      = useRef<WebSocket | null>(null);
-  const mountedRef = useRef(true);
-  const attemptRef = useRef(0);
-  const retryRef   = useRef<ReturnType<typeof setTimeout>>();
-  const pingRef    = useRef<ReturnType<typeof setInterval>>();
+  const wsRef         = useRef<WebSocket | null>(null);
+  const mountedRef    = useRef(true);
+  const attemptRef    = useRef(0);
+  const retryRef      = useRef<ReturnType<typeof setTimeout>>();
+  const pingRef       = useRef<ReturnType<typeof setInterval>>();
+  const bybitTmrRef   = useRef<ReturnType<typeof setTimeout>>();
+  const activeFeedRef = useRef<ExchangeId>(exchange);
 
-  // RAF message queue — buffer ALL incoming WS messages, flush in one frame
-  const rafRef     = useRef(0);
-  const queueRef   = useRef<Record<string, unknown>[]>([]);
+  const rafRef   = useRef(0);
+  const queueRef = useRef<Record<string, unknown>[]>([]);
 
-  // Per-symbol mutable state (refs — no closure stale issues)
-  const bidsMap  = useRef<PriceMap>(new Map());
-  const asksMap  = useRef<PriceMap>(new Map());
-  const cvdRef   = useRef(0);
-  const cvdHist  = useRef<CvdPoint[]>([]);
-  const tradeId  = useRef(0);
+  const bidsMap      = useRef<PriceMap>(new Map());
+  const asksMap      = useRef<PriceMap>(new Map());
+  const cvdRef       = useRef(0);
+  const cvdHist      = useRef<CvdPoint[]>([]);
+  const tradeId      = useRef(0);
   const prevPrice24h = useRef(0);
 
   const setStatus = useCallback((s: ConnectionStatus) => {
     setState((prev) => prev.status === s ? prev : { ...prev, status: s });
   }, []);
-
-  // ── Parsers — pure, return partial state update ───────────────────────────
 
   const parseBybit = useCallback((
     data: Record<string, unknown>,
@@ -102,7 +104,6 @@ export function useMultiExchangeWs(
     const topic = data.topic as string | undefined;
     if (!topic) return;
 
-    // OrderBook
     if (topic.startsWith('orderbook.')) {
       const d = data.data as { b: [string,string][]; a: [string,string][] } | undefined;
       if (!d) return;
@@ -117,7 +118,6 @@ export function useMultiExchangeWs(
       draft.asks = mapToLevels(asksMap.current, true,  levels);
     }
 
-    // Trades
     if (topic.startsWith('publicTrade.')) {
       const arr = data.data as Array<{ i:string; T:number; p:string; v:string; S:'Buy'|'Sell' }>;
       if (!Array.isArray(arr)) return;
@@ -131,23 +131,22 @@ export function useMultiExchangeWs(
         cvdHist.current.push({ time: t.time, cvd: cvdRef.current });
         if (cvdHist.current.length > 200) cvdHist.current.shift();
       }
-      draft.trades    = incoming; // merged with prev in flushQueue
+      draft.trades    = incoming;
       draft.cvdPoints = [...cvdHist.current];
     }
 
-    // Ticker
     if (topic.startsWith('tickers.')) {
       const d = data.data as Record<string, string> | undefined;
       if (!d) return;
       if (d.prevPrice24h) prevPrice24h.current = parseFloat(d.prevPrice24h);
       draft.ticker = {
         _partial: true,
-        lastPrice:          d.lastPrice         ? parseFloat(d.lastPrice)            : null,
-        priceChangePercent: d.price24hPcnt      ? parseFloat(d.price24hPcnt) * 100   : null,
-        highPrice:          d.highPrice24h       ? parseFloat(d.highPrice24h)         : null,
-        lowPrice:           d.lowPrice24h        ? parseFloat(d.lowPrice24h)          : null,
-        volume:             d.volume24h          ? parseFloat(d.volume24h)            : null,
-        quoteVolume:        d.turnover24h        ? parseFloat(d.turnover24h)          : null,
+        lastPrice:          d.lastPrice         ? parseFloat(d.lastPrice)          : null,
+        priceChangePercent: d.price24hPcnt      ? parseFloat(d.price24hPcnt) * 100 : null,
+        highPrice:          d.highPrice24h       ? parseFloat(d.highPrice24h)       : null,
+        lowPrice:           d.lowPrice24h        ? parseFloat(d.lowPrice24h)        : null,
+        volume:             d.volume24h          ? parseFloat(d.volume24h)          : null,
+        quoteVolume:        d.turnover24h        ? parseFloat(d.turnover24h)        : null,
         _prevPrice24h:      prevPrice24h.current,
       } as unknown as TickerData;
     }
@@ -222,8 +221,6 @@ export function useMultiExchangeWs(
     }
   }, [levels]);
 
-  // ── RAF flush — drain queue, merge all updates, 1 setState ───────────────
-
   const flushQueue = useCallback(() => {
     rafRef.current = 0;
     if (!mountedRef.current) return;
@@ -231,16 +228,15 @@ export function useMultiExchangeWs(
     const messages = queueRef.current.splice(0);
     if (messages.length === 0) return;
 
-    // Build merged draft from all queued messages
     const draft: Partial<ExchangeState> & { _newTrades?: Trade[] } = {};
+    const feed = activeFeedRef.current;
 
     for (const data of messages) {
       const msg = data as Record<string, unknown>;
-      if (exchange === 'bybit')    parseBybit(msg, draft);
-      if (exchange === 'binance')  parseBinance(msg, draft);
-      if (exchange === 'coinbase') parseCoinbase(msg, draft);
+      if (feed === 'bybit')    parseBybit(msg, draft);
+      if (feed === 'binance')  parseBinance(msg, draft);
+      if (feed === 'coinbase') parseCoinbase(msg, draft);
 
-      // Accumulate trades across messages in this frame
       if (draft.trades) {
         draft._newTrades = [...(draft._newTrades ?? []), ...draft.trades];
         delete draft.trades;
@@ -252,7 +248,6 @@ export function useMultiExchangeWs(
       delete draft._newTrades;
     }
 
-    // Single setState call for entire frame
     setState((prev) => {
       const next: ExchangeState = { ...prev };
 
@@ -265,7 +260,6 @@ export function useMultiExchangeWs(
       }
 
       if (draft.ticker) {
-        // Handle Bybit partial ticker (_partial flag)
         const t = draft.ticker as TickerData & { _partial?: boolean; _prevPrice24h?: number };
         if (t._partial) {
           const base = prev.ticker ?? {
@@ -292,23 +286,28 @@ export function useMultiExchangeWs(
     });
   }, [exchange, parseBybit, parseBinance, parseCoinbase]);
 
-  // ── Connect ───────────────────────────────────────────────────────────────
+  // ── Generic connect helper ────────────────────────────────────────────────
 
-  const connect = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState <= WebSocket.OPEN) return;
-    setStatus('reconnecting');
-
-    const url = getWsUrl(exchange, symbol);
+  const connectWs = useCallback((
+    feed: ExchangeId,
+    url: string,
+    subMsg: object,
+    withPing: boolean,
+  ) => {
+    if (!mountedRef.current) return;
     let ws: WebSocket;
     try { ws = new WebSocket(url); } catch { return; }
-    wsRef.current = ws;
+    wsRef.current     = ws;
+    activeFeedRef.current = feed;
 
     ws.onopen = () => {
+      if (!mountedRef.current) return;
+      if (bybitTmrRef.current) { clearTimeout(bybitTmrRef.current); bybitTmrRef.current = undefined; }
       attemptRef.current = 0;
       setStatus('connected');
-      const sub = getSubscribeMsg(exchange, symbol);
-      if (Object.keys(sub).length > 0) ws.send(JSON.stringify(sub));
-      if (exchange === 'bybit') {
+      setState((prev) => ({ ...prev, activeFeed: feed }));
+      if (Object.keys(subMsg).length > 0) ws.send(JSON.stringify(subMsg));
+      if (withPing) {
         pingRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ op: 'ping' }));
         }, 20_000);
@@ -319,14 +318,9 @@ export function useMultiExchangeWs(
       if (!mountedRef.current) return;
       try {
         const data = JSON.parse(ev.data as string) as Record<string, unknown>;
-        // Skip pong / subscribe acks
         if (data.op === 'pong' || data.op === 'subscribe') return;
-        // Queue message
         queueRef.current.push(data);
-        // Schedule RAF flush if not already pending
-        if (!rafRef.current) {
-          rafRef.current = requestAnimationFrame(flushQueue);
-        }
+        if (!rafRef.current) rafRef.current = requestAnimationFrame(flushQueue);
       } catch { /* malformed */ }
     };
 
@@ -342,13 +336,53 @@ export function useMultiExchangeWs(
     };
 
     ws.onerror = () => ws.close();
-  }, [exchange, symbol, flushQueue, setStatus]);
+  }, [flushQueue, setStatus]);
 
-  // ── Mount / exchange+symbol change ───────────────────────────────────────
+  // ── Main connect — Bybit with fallback ───────────────────────────────────
+
+  const connect = useCallback(() => {
+    if (!mountedRef.current) return;
+
+    // Cleanup existing
+    if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
+    if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = undefined; }
+    if (bybitTmrRef.current) { clearTimeout(bybitTmrRef.current); bybitTmrRef.current = undefined; }
+
+    setStatus('reconnecting');
+
+    if (exchange === 'bybit') {
+      // Attempt Bybit — timeout to Binance fallback
+      const bybitUrl = getWsUrl('bybit', symbol);
+      const subMsg   = getSubscribeMsg('bybit', symbol);
+
+      // Fallback timer
+      bybitTmrRef.current = setTimeout(() => {
+        if (!mountedRef.current) return;
+        const ws = wsRef.current;
+        if (ws && ws.readyState !== WebSocket.OPEN) {
+          ws.onclose = null;
+          ws.close();
+          wsRef.current = null;
+          // Silent fallback to Binance
+          const binanceUrl = getBinanceCombinedUrl(symbol);
+          connectWs('binance', binanceUrl, {}, false);
+        }
+      }, BYBIT_TIMEOUT_MS);
+
+      connectWs('bybit', bybitUrl, subMsg, true);
+
+    } else if (exchange === 'binance') {
+      connectWs('binance', getBinanceCombinedUrl(symbol), {}, false);
+
+    } else if (exchange === 'coinbase') {
+      const url    = getWsUrl('coinbase', symbol);
+      const subMsg = getSubscribeMsg('coinbase', symbol);
+      connectWs('coinbase', url, subMsg, false);
+    }
+  }, [exchange, symbol, connectWs, setStatus]);
 
   useEffect(() => {
-    mountedRef.current = true;
-    // Reset all mutable state
+    mountedRef.current   = true;
     bidsMap.current      = new Map();
     asksMap.current      = new Map();
     cvdRef.current       = 0;
@@ -356,20 +390,17 @@ export function useMultiExchangeWs(
     tradeId.current      = 0;
     prevPrice24h.current = 0;
     queueRef.current     = [];
-    setState({ ...EMPTY_STATE });
+    setState({ ...EMPTY_STATE, activeFeed: exchange });
 
     connect();
 
     return () => {
       mountedRef.current = false;
-      if (retryRef.current) clearTimeout(retryRef.current);
-      if (pingRef.current)  clearInterval(pingRef.current);
-      if (rafRef.current)   cancelAnimationFrame(rafRef.current);
-      if (wsRef.current) {
-        wsRef.current.onclose = null;
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      if (retryRef.current)    clearTimeout(retryRef.current);
+      if (pingRef.current)     clearInterval(pingRef.current);
+      if (rafRef.current)      cancelAnimationFrame(rafRef.current);
+      if (bybitTmrRef.current) clearTimeout(bybitTmrRef.current);
+      if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
     };
   }, [exchange, symbol, connect]);
 
