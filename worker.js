@@ -110,7 +110,7 @@ async function handleRest(request, url) {
 
   if (url.pathname.startsWith('/api/')) {
     targetBase = 'https://api.binance.me';
-    targetPath = url.pathname.slice(4); // /api/... → /api/...
+    targetPath = url.pathname; // keep full /api/v3/... path
   } else if (url.pathname.startsWith('/fapi/')) {
     targetBase = 'https://fapi.binance.me';
     targetPath = url.pathname; // keep /fapi/...
