@@ -1,12 +1,16 @@
 /**
- * OrderBook.tsx — ZERØ ORDER BOOK v35
- * HD overhaul — sharper colors, tighter rows, crisper typography.
- * No per-row useState — flash via DOM classList (zero re-render).
+ * OrderBook.tsx — ZERØ ORDER BOOK v39
+ * UPGRADES vs v35:
+ *   - Whale row highlight: levels with notional > $100k glow orange
+ *   - Whale rows pulse animation via CSS class (zero re-render)
+ *   - OrderBookLevel2 type with isWhale + notional
+ *   - Flash via DOM classList preserved (zero re-render)
  * rgba() only ✓ · React.memo ✓ · displayName ✓
  */
 
 import React, { useMemo, useRef } from 'react';
-import type { OrderBookLevel, Precision } from '@/types/market';
+import type { Precision } from '@/types/market';
+import type { OrderBookLevel2 } from '@/hooks/useOrderBook';
 import { formatSize } from '@/lib/formatters';
 
 function precisionToDecimals(p: string): number {
@@ -17,8 +21,8 @@ function precisionToDecimals(p: string): number {
 }
 
 interface OrderBookProps {
-  bids:              OrderBookLevel[];
-  asks:              OrderBookLevel[];
+  bids:              OrderBookLevel2[];
+  asks:              OrderBookLevel2[];
   midPrice:          number | null;
   prevMidPrice:      number | null;
   precision:         Precision;
@@ -207,7 +211,7 @@ MidPriceRow.displayName = 'MidPriceRow';
 // ── OrderRow ──────────────────────────────────────────────────────────────────
 
 interface OrderRowProps {
-  rank: number; level: OrderBookLevel; side: 'bid' | 'ask';
+  rank: number; level: OrderBookLevel2; side: 'bid' | 'ask';
   maxTotal: number; decimals: number; compact: boolean;
 }
 
@@ -232,21 +236,29 @@ const OrderRow: React.FC<OrderRowProps> = React.memo(({
   prevSizeRef.current = level.size;
 
   const isBid     = side === 'bid';
-  const color     = isBid ? 'rgba(38,166,154,1)'    : 'rgba(239,83,80,1)';
-  const fillColor = isBid ? 'rgba(38,166,154,0.09)' : 'rgba(239,83,80,0.09)';
+  // Whale rows get special amber highlight
+  const isWhale   = level.isWhale;
+  const baseColor = isBid ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
+  const color     = isWhale ? 'rgba(242,142,44,1)' : baseColor;
+  const fillColor = isWhale
+    ? 'rgba(242,142,44,0.11)'
+    : isBid ? 'rgba(38,166,154,0.09)' : 'rgba(239,83,80,0.09)';
   const depthPct  = Math.min((level.total / maxTotal) * 100, 100);
 
   return (
     <div
       ref={rowRef}
+      className={isWhale ? 'whale-row' : undefined}
       style={{
         display: 'grid',
         gridTemplateColumns: compact ? '1fr 1fr 1fr' : '20px 1fr 1fr 1fr',
         padding: compact ? '1.5px 8px' : '1.5px 10px',
         gap: '4px',
-        fontSize: '11px', fontWeight: 600,
+        fontSize: '11px', fontWeight: isWhale ? 700 : 600,
         position: 'relative', cursor: 'default', flexShrink: 0,
         lineHeight: '1.55',
+        // Whale rows get subtle left border
+        borderLeft: isWhale ? '2px solid rgba(242,142,44,0.6)' : '2px solid transparent',
       }}
       onMouseEnter={(e) => {
         (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.035)';
@@ -266,14 +278,21 @@ const OrderRow: React.FC<OrderRowProps> = React.memo(({
       }} />
 
       {!compact && (
-        <span style={{ color: 'rgba(255,255,255,0.10)', fontSize: '8.5px', position: 'relative', zIndex: 1 }}>
-          {rank}
+        <span style={{
+          color: isWhale ? 'rgba(242,142,44,0.50)' : 'rgba(255,255,255,0.10)',
+          fontSize: '8.5px', position: 'relative', zIndex: 1,
+        }}>
+          {isWhale ? '🐋' : rank}
         </span>
       )}
       <span className="mono-num" style={{ textAlign: 'right', color, position: 'relative', zIndex: 1 }}>
         {level.price.toFixed(decimals)}
       </span>
-      <span className="mono-num" style={{ textAlign: 'right', color: 'rgba(255,255,255,0.52)', position: 'relative', zIndex: 1 }}>
+      <span className="mono-num" style={{
+        textAlign: 'right',
+        color: isWhale ? 'rgba(242,142,44,0.80)' : 'rgba(255,255,255,0.52)',
+        position: 'relative', zIndex: 1,
+      }}>
         {formatSize(level.size)}
       </span>
       <span className="mono-num" style={{ textAlign: 'right', color: 'rgba(255,255,255,0.22)', position: 'relative', zIndex: 1 }}>
