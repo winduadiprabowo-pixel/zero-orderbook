@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useBinanceWs } from './useBinanceWs';
+import { useBinanceWs, resolveWsUrl } from './useBinanceWs';
 import type { OrderBookLevel, ConnectionStatus } from '@/types/market';
 
 interface DepthSnapshot {
@@ -36,8 +36,14 @@ export function useOrderBook(symbol: string, levels = 20) {
     setLastUpdate(Date.now());
   }, [levels]);
 
+  // ✅ FIX: resolveWsUrl dulu, baru pass ke useBinanceWs
+  // stream.binance.com:9443 → proxy /ws/ route
+  const wsUrl = resolveWsUrl(
+    'wss://stream.binance.com/ws/' + symbol.toUpperCase() + '@depth20@500ms'
+  );
+
   const { retry } = useBinanceWs({
-    url: `wss://stream.binance.com:9443/ws/${symbol.toUpperCase()}@depth20@500ms`,
+    url: wsUrl,
     onMessage: handleMessage,
     onStatusChange: setStatus,
   });
