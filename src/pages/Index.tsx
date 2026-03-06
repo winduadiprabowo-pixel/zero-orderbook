@@ -436,6 +436,8 @@ const Index: React.FC = () => {
       symbol={activeSymbol}
       interval={interval}
       onIntervalChange={handleIntervalChange}
+      ticker={ticker}
+      symbolInfo={symbolInfo}
     />
   );
 
