@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useBinanceWs } from './useBinanceWs';
+import { useBinanceWs, resolveWsUrl } from './useBinanceWs';
 import type { TickerData, ConnectionStatus } from '@/types/market';
 
 export function useTicker(symbol: string) {
@@ -10,18 +10,23 @@ export function useTicker(symbol: string) {
     const d = data as { c: string; p: string; P: string; h: string; l: string; v: string; q: string };
     if (!d.c) return;
     setTicker({
-      lastPrice:           parseFloat(d.c),
-      priceChange:         parseFloat(d.p),
-      priceChangePercent:  parseFloat(d.P),
-      highPrice:           parseFloat(d.h),
-      lowPrice:            parseFloat(d.l),
-      volume:              parseFloat(d.v),
-      quoteVolume:         parseFloat(d.q),
+      lastPrice:          parseFloat(d.c),
+      priceChange:        parseFloat(d.p),
+      priceChangePercent: parseFloat(d.P),
+      highPrice:          parseFloat(d.h),
+      lowPrice:           parseFloat(d.l),
+      volume:             parseFloat(d.v),
+      quoteVolume:        parseFloat(d.q),
     });
   }, []);
 
+  // ✅ FIX: tanpa :9443 — proxy gak forward port, pakai standard wss port
+  const wsUrl = resolveWsUrl(
+    'wss://stream.binance.com/ws/' + symbol.toUpperCase() + '@ticker'
+  );
+
   const { retry } = useBinanceWs({
-    url: `wss://stream.binance.com:9443/ws/${symbol.toUpperCase()}@ticker`,
+    url: wsUrl,
     onMessage: handleMessage,
     onStatusChange: setStatus,
   });
