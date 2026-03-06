@@ -19,7 +19,7 @@ interface FeedLatencyProps {
 
 const FeedLatency: React.FC<FeedLatencyProps> = React.memo(({ latencyMs }) => {
   const { color, label, bars } = useMemo(() => {
-    if (latencyMs === null) {
+    if (latencyMs == null || typeof latencyMs !== 'number') {
       return { color: 'rgba(255,255,255,0.22)', label: '—', bars: 0 };
     }
     if (latencyMs <= 50)  return { color: 'rgba(38,166,154,1)',  label: latencyMs + 'ms', bars: 4 };
