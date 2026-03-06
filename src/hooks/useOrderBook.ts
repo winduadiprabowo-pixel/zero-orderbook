@@ -37,7 +37,7 @@ export function useOrderBook(symbol: string, levels = 20) {
   }, [levels]);
 
   const { retry } = useBinanceWs({
-    url: `wss://stream.binance.com:9443/ws/${symbol}@depth20@500ms`,
+    url: `wss://stream.binance.com:9443/ws/${symbol.toUpperCase()}@depth20@500ms`,
     onMessage: handleMessage,
     onStatusChange: setStatus,
   });
