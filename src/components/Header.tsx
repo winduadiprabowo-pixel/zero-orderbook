@@ -1,11 +1,10 @@
 /**
- * Header.tsx — ZERØ ORDER BOOK v34
- * Logo | Pair selector (dropdown trigger w/ coin logo) | Price stats | PRO CTA
- * Sidebar toggle REMOVED — chart is always full width now.
+ * Header.tsx — ZERØ ORDER BOOK v38
+ * FIX MOBILE: harga tidak kepotong — hide "ORDER BOOK" label + timestamp di mobile.
  * rgba() only ✓ · IBM Plex Mono ✓ · React.memo ✓ · displayName ✓
  */
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import type { ConnectionStatus, SymbolInfo, TickerData, GlobalStats } from '@/types/market';
 import { formatCompact, fearGreedColor } from '@/lib/formatters';
 import CoinLogo from '@/components/CoinLogo';
@@ -38,7 +37,7 @@ const Header: React.FC<HeaderProps> = React.memo(({
   }, [status]);
 
   const timeStr = useMemo(() => {
-    if (!lastUpdate) return '--:--:--';
+    if (!lastUpdate) return '';
     return new Date(lastUpdate).toLocaleTimeString('en-US', { hour12: false });
   }, [lastUpdate]);
 
@@ -49,7 +48,6 @@ const Header: React.FC<HeaderProps> = React.memo(({
 
   const fgColor = fearGreedColor(globalStats.fearGreedValue);
 
-  // Format: "BTC/USDT"
   const activeLabel = useMemo(() => {
     const up = activeSymbol.toUpperCase();
     for (const quote of ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'FDUSD']) {
@@ -78,20 +76,19 @@ const Header: React.FC<HeaderProps> = React.memo(({
       flexShrink: 0,
       zIndex: 30,
     }}>
-      {/* ── Main row ── */}
       <div style={{
         display: 'flex', alignItems: 'center',
-        padding: '0 14px',
+        padding: '0 12px',
         height: '48px', gap: '0',
         overflow: 'hidden',
+        minWidth: 0,
       }}>
 
         {/* ── Logo ── */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: '5px',
-          marginRight: '14px', flexShrink: 0,
+          marginRight: '12px', flexShrink: 0,
         }}>
-          {/* ZERØ mark */}
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
             <rect x="2" y="2" width="18" height="18" rx="3" fill="rgba(242,142,44,0.12)" stroke="rgba(242,142,44,0.5)" strokeWidth="1.2"/>
             <text x="11" y="15.5" textAnchor="middle" fontSize="11" fontWeight="900" fill="rgba(242,142,44,1)" fontFamily="'IBM Plex Mono',monospace">Ø</text>
@@ -99,25 +96,29 @@ const Header: React.FC<HeaderProps> = React.memo(({
           <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '0.03em', color: 'rgba(242,142,44,1)' }}>
             ZERØ
           </span>
-          <span style={{ fontSize: '8px', color: 'rgba(255,255,255,0.22)', fontWeight: 500, letterSpacing: '0.04em', marginLeft: '1px' }}>
+          {/* Hidden on mobile — saves ~80px */}
+          <span className="header-subtitle" style={{
+            fontSize: '8px', color: 'rgba(255,255,255,0.22)', fontWeight: 500,
+            letterSpacing: '0.04em', marginLeft: '1px',
+          }}>
             ORDER BOOK
           </span>
         </div>
 
-        <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.07)', flexShrink: 0, marginRight: '14px' }} />
+        <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.07)', flexShrink: 0, marginRight: '12px' }} />
 
-        {/* ── Pair selector button ── */}
+        {/* ── Pair selector ── */}
         <button
           onClick={onOpenMarkets}
           aria-label="Change trading pair"
           style={{
-            display: 'flex', alignItems: 'center', gap: '8px',
+            display: 'flex', alignItems: 'center', gap: '7px',
             background: 'rgba(255,255,255,0.05)',
             border: '1px solid rgba(255,255,255,0.08)',
             borderRadius: '5px',
             cursor: 'pointer',
             fontFamily: 'inherit',
-            padding: '5px 10px 5px 8px',
+            padding: '5px 8px 5px 7px',
             flexShrink: 0,
             transition: 'background 120ms, border-color 120ms',
           }}
@@ -130,10 +131,7 @@ const Header: React.FC<HeaderProps> = React.memo(({
             (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.08)';
           }}
         >
-          {/* Coin logo */}
-          <CoinLogo symbol={activeLabel.base} size={20} />
-
-          {/* Pair name */}
+          <CoinLogo symbol={activeLabel.base} size={18} />
           <span style={{
             fontSize: '13px', fontWeight: 800,
             color: 'rgba(255,255,255,0.95)',
@@ -145,33 +143,37 @@ const Header: React.FC<HeaderProps> = React.memo(({
               /{activeLabel.quote}
             </span>
           </span>
-
-          {/* Dropdown chevron */}
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0, marginLeft: '1px' }}>
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
             <path d="M2 3.5L5 6.5L8 3.5" stroke="rgba(255,255,255,0.35)" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
         </button>
 
-        {/* ── Price + change ── */}
+        {/* ── Price + change — flex-shrink allowed, min-width: 0 ── */}
         {ticker && (
           <div style={{
-            display: 'flex', alignItems: 'baseline', gap: '6px',
-            marginLeft: '12px', flexShrink: 0,
+            display: 'flex', alignItems: 'baseline', gap: '5px',
+            marginLeft: '10px',
+            flexShrink: 1,   // ← kunci: boleh menyempit
+            minWidth: 0,
+            overflow: 'hidden',
           }}>
             <span className="mono-num" style={{
-              fontSize: '15px', fontWeight: 800, color: changeColor, letterSpacing: '-0.01em',
+              fontSize: '15px', fontWeight: 800, color: changeColor,
+              letterSpacing: '-0.01em', whiteSpace: 'nowrap',
+              overflow: 'hidden', textOverflow: 'ellipsis',
             }}>
               {priceStr}
             </span>
-            <span className="mono-num" style={{
+            <span className="mono-num header-change" style={{
               fontSize: '11px', fontWeight: 700, color: changeColor,
+              whiteSpace: 'nowrap', flexShrink: 0,
             }}>
               {changeStr}
             </span>
           </div>
         )}
 
-        <div style={{ flex: 1 }} />
+        <div style={{ flex: 1, minWidth: 0 }} />
 
         {/* ── Ticker stats — desktop only ── */}
         {ticker && (
@@ -197,10 +199,10 @@ const Header: React.FC<HeaderProps> = React.memo(({
           </div>
         )}
 
-        <div style={{ width: '1px', height: '18px', background: 'rgba(255,255,255,0.07)', flexShrink: 0, marginLeft: '12px' }} />
+        <div style={{ width: '1px', height: '18px', background: 'rgba(255,255,255,0.07)', flexShrink: 0, marginLeft: '10px' }} />
 
         {/* ── Status ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, margin: '0 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, margin: '0 10px' }}>
           <div
             className="live-dot"
             style={{ width: '5px', height: '5px', borderRadius: '50%', background: statusColor }}
@@ -208,8 +210,11 @@ const Header: React.FC<HeaderProps> = React.memo(({
           <span style={{ fontSize: '9px', fontWeight: 700, color: statusColor, letterSpacing: '0.10em' }}>
             {statusLabel}
           </span>
-          {lastUpdate > 0 && (
-            <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.14)', letterSpacing: '0.04em' }}>
+          {/* Timestamp — hidden on mobile */}
+          {timeStr && (
+            <span className="header-timestamp" style={{
+              fontSize: '9px', color: 'rgba(255,255,255,0.14)', letterSpacing: '0.04em',
+            }}>
               {timeStr}
             </span>
           )}
@@ -222,7 +227,7 @@ const Header: React.FC<HeaderProps> = React.memo(({
           aria-label="Upgrade to ZERØ ORDER BOOK PRO"
           style={{
             display: 'flex', alignItems: 'center', gap: '4px',
-            padding: '0 11px', height: '28px', flexShrink: 0,
+            padding: '0 10px', height: '28px', flexShrink: 0,
             background: 'rgba(242,142,44,0.12)',
             border: '1px solid rgba(242,142,44,0.40)',
             borderRadius: '4px', cursor: 'pointer',
@@ -235,6 +240,15 @@ const Header: React.FC<HeaderProps> = React.memo(({
           ⚡ PRO $9
         </button>
       </div>
+
+      <style>{`
+        /* Mobile: hide non-essential header elements */
+        @media (max-width: 767px) {
+          .header-subtitle   { display: none !important; }
+          .header-timestamp  { display: none !important; }
+          .header-change     { display: none !important; }
+        }
+      `}</style>
     </header>
   );
 });
