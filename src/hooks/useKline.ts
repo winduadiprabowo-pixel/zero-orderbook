@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useBinanceWs, resolveRestUrl } from './useBinanceWs';
+import { useBinanceWs, resolveWsUrl, resolveRestUrl } from './useBinanceWs';
 import type { KlineData, ConnectionStatus, Interval } from '@/types/market';
 
 export function useKline(symbol: string, interval: Interval) {
@@ -14,7 +14,7 @@ export function useKline(symbol: string, interval: Interval) {
 
     (async () => {
       try {
-        const raw = `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=300`;
+        const raw = 'https://api.binance.com/api/v3/klines?symbol=' + symbol.toUpperCase() + '&interval=' + interval + '&limit=300';
         const res = await fetch(resolveRestUrl(raw), { signal: controller.signal });
         if (!res.ok) return;
         const data = await res.json() as unknown[][];
@@ -55,8 +55,13 @@ export function useKline(symbol: string, interval: Interval) {
     });
   }, []);
 
+  // ✅ FIX: tanpa :9443
+  const wsUrl = resolveWsUrl(
+    'wss://stream.binance.com/ws/' + symbol.toUpperCase() + '@kline_' + interval
+  );
+
   const { retry } = useBinanceWs({
-    url: `wss://stream.binance.com:9443/ws/${symbol.toUpperCase()}@kline_${interval}`,
+    url: wsUrl,
     onMessage: handleMessage,
     onStatusChange: setStatus,
   });
