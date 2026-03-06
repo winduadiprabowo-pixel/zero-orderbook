@@ -9,23 +9,28 @@ import React, { useMemo } from 'react';
 import type { ConnectionStatus, SymbolInfo, TickerData, GlobalStats } from '@/types/market';
 import { formatCompact, fearGreedColor } from '@/lib/formatters';
 import CoinLogo from '@/components/CoinLogo';
+import ExchangeSwitcher from '@/components/ExchangeSwitcher';
+import { type ExchangeId } from '@/hooks/useExchange';
 import FeedLatency from '@/components/FeedLatency';
 
 interface HeaderProps {
-  activeSymbol:  string;
-  symbolInfo:    SymbolInfo;
-  onOpenMarkets: () => void;
-  onOpenPro:     () => void;
-  status:        ConnectionStatus;
-  lastUpdate:    number;
-  ticker:        TickerData | null;
-  globalStats:   GlobalStats;
-  latencyMs:     number | null;
+  activeSymbol:     string;
+  symbolInfo:       SymbolInfo;
+  onOpenMarkets:    () => void;
+  onOpenPro:        () => void;
+  status:           ConnectionStatus;
+  lastUpdate:       number;
+  ticker:           TickerData | null;
+  globalStats:      GlobalStats;
+  latencyMs:        number | null;
+  exchange:         ExchangeId;
+  onExchangeChange: (ex: ExchangeId) => void;
 }
 
 const Header: React.FC<HeaderProps> = React.memo(({
   activeSymbol, symbolInfo, onOpenMarkets, onOpenPro,
   status, lastUpdate, ticker, globalStats, latencyMs,
+  exchange, onExchangeChange,
 }) => {
   const statusColor = useMemo(() => {
     if (status === 'connected')    return 'rgba(38,166,154,1)';
@@ -227,6 +232,9 @@ const Header: React.FC<HeaderProps> = React.memo(({
             )}
           </div>
         </div>
+
+        {/* ── Exchange Switcher ── */}
+        <ExchangeSwitcher active={exchange} onChange={onExchangeChange} />
 
         {/* ── PRO CTA ── */}
         <button
