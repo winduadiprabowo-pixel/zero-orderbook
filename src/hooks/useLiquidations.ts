@@ -1,16 +1,20 @@
 /**
- * useLiquidations.ts — ZERØ ORDER BOOK
- * Hardcode proxy WS URL langsung
+ * useLiquidations.ts — ZERØ ORDER BOOK v36
+ * FIX: pakai PROXY_BASE dari useBinanceWs — no hardcode duplikasi
  */
 
 import { useEffect, useRef, useCallback, useReducer, useMemo } from 'react';
 import { getReconnectDelay } from '@/lib/formatters';
+import { PROXY_BASE } from './useBinanceWs';
 import type { LiquidationEvent, LiquidationStats } from '@/types/market';
 
-const PROXY_WS = 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
-const WS_URL   = PROXY_WS + '/fstream/!forceOrder@arr';
 const MAX_EVENTS = 200;
 let _idSeq = 0;
+
+function buildWsUrl(): string {
+  const proxyWs = PROXY_BASE.replace(/^https?:\/\//, 'wss://');
+  return proxyWs + '/fstream/!forceOrder@arr';
+}
 
 function computeStats(events: LiquidationEvent[]): LiquidationStats {
   if (!events.length) return { totalLongLiqUsd: 0, totalShortLiqUsd: 0, largestEvent: null, eventsPerMinute: 0 };
@@ -55,9 +59,14 @@ export function useLiquidations() {
   const connectWS = useCallback(() => {
     if (!mountedRef.current) return;
     dispatch({ type: 'STATUS', status: 'reconnecting' });
-    const ws = new WebSocket(WS_URL);
+    const wsUrl = buildWsUrl();
+    const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
-    ws.onopen = () => { if (!mountedRef.current) { ws.close(); return; } attemptRef.current = 0; dispatch({ type: 'STATUS', status: 'connected' }); };
+    ws.onopen = () => {
+      if (!mountedRef.current) { ws.close(); return; }
+      attemptRef.current = 0;
+      dispatch({ type: 'STATUS', status: 'connected' });
+    };
     ws.onmessage = (event: MessageEvent) => {
       if (!mountedRef.current) return;
       try {
@@ -66,19 +75,19 @@ export function useLiquidations() {
         for (const item of items) {
           const o = item.o ?? item;
           if (!o?.s) continue;
-          const lastFilledQty = parseFloat(o.l ?? '0');
+          const lastFilledQty   = parseFloat(o.l ?? '0');
           const lastFilledPrice = parseFloat(o.ap ?? o.p ?? '0');
-          const usdValue = lastFilledQty * lastFilledPrice;
+          const usdValue        = lastFilledQty * lastFilledPrice;
           pendingBatch.current.push({
-            id: o.s + '_' + (o.T ?? Date.now()) + '_' + (++_idSeq),
-            symbol: o.s as string,
-            side: (o.S === 'BUY' ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
-            price: parseFloat(o.p ?? '0'),
-            origQty: parseFloat(o.q ?? '0'),
+            id:             o.s + '_' + (o.T ?? Date.now()) + '_' + (++_idSeq),
+            symbol:         o.s as string,
+            side:           (o.S === 'BUY' ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+            price:          parseFloat(o.p ?? '0'),
+            origQty:        parseFloat(o.q ?? '0'),
             lastFilledQty, lastFilledPrice, usdValue,
-            timestamp: o.T ?? Date.now(),
-            isMajor: usdValue >= 100_000,
-            isWhale: usdValue >= 1_000_000,
+            timestamp:      o.T ?? Date.now(),
+            isMajor:        usdValue >= 100_000,
+            isWhale:        usdValue >= 1_000_000,
           });
         }
         if (pendingBatch.current.length) scheduleFlush();
@@ -99,7 +108,7 @@ export function useLiquidations() {
       mountedRef.current = false;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      wsRef.current?.close();
+      if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); }
       pendingBatch.current = [];
     };
   }, [connectWS]);
