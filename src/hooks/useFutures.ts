@@ -1,13 +1,14 @@
 /**
  * useFutures.ts — ZERØ ORDER BOOK
- * Real Binance Futures endpoints — proxied via CF Worker when VITE_WS_PROXY is set.
+ * Real Binance Futures endpoints — direct from browser (no proxy).
+ * CF Worker IPs are blocked by Binance for fapi endpoints.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { resolveRestUrl } from './useBinanceWs';
 import type { FuturesData } from '@/types/market';
 
 const FAPI = 'https://fapi.binance.com/fapi/v1';
+const FDATA = 'https://fapi.binance.com/futures/data';
 
 interface RawPremiumIndex {
   symbol: string;
@@ -26,8 +27,7 @@ interface RawLSR {
 }
 
 async function fetchFundingAndMark(symbol: string, signal: AbortSignal) {
-  const url = resolveRestUrl(`${FAPI}/premiumIndex?symbol=${symbol}`);
-  const res = await fetch(url, { signal });
+  const res = await fetch(`${FAPI}/premiumIndex?symbol=${symbol}`, { signal });
   if (!res.ok) throw new Error('premiumIndex failed');
   const d = await res.json() as RawPremiumIndex;
   return {
@@ -38,16 +38,14 @@ async function fetchFundingAndMark(symbol: string, signal: AbortSignal) {
 }
 
 async function fetchOI(symbol: string, signal: AbortSignal) {
-  const url = resolveRestUrl(`${FAPI}/openInterest?symbol=${symbol}`);
-  const res = await fetch(url, { signal });
+  const res = await fetch(`${FAPI}/openInterest?symbol=${symbol}`, { signal });
   if (!res.ok) throw new Error('openInterest failed');
   const d = await res.json() as RawOI;
   return { openInterest: parseFloat(d.openInterest), openInterestUsd: 0 };
 }
 
 async function fetchLSR(symbol: string, signal: AbortSignal) {
-  const raw = `https://fapi.binance.com/futures/data/topLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`;
-  const res = await fetch(resolveRestUrl(raw), { signal });
+  const res = await fetch(`${FDATA}/topLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`, { signal });
   if (!res.ok) throw new Error('LSR failed');
   const data = await res.json() as RawLSR[];
   const d = data[0];
