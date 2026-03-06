@@ -172,7 +172,7 @@ const CategoryTab: React.FC<{
   <button
     onClick={onClick}
     style={{
-      padding: '5px 11px', border: 'none', cursor: 'pointer',
+      padding: '5px 11px', cursor: 'pointer',
       fontFamily: 'inherit', fontSize: '9px', fontWeight: 700,
       letterSpacing: '0.08em', textTransform: 'uppercase' as const,
       borderRadius: '3px',
