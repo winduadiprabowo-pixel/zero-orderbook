@@ -30,7 +30,9 @@ import { useTrades }       from '@/hooks/useTrades';
 import { useLiquidations } from '@/hooks/useLiquidations';
 import { useGlobalStats }  from '@/hooks/useGlobalStats';
 import { useMarketPairs }  from '@/hooks/useMarketPairs';
-import { formatCompact }   from '@/lib/formatters';
+import { useAllTickers }   from '@/hooks/useAllTickers';
+import type { TickerMap }  from '@/hooks/useAllTickers';
+import { formatCompact, formatPrice } from '@/lib/formatters';
 
 import {
   PINNED_SYMBOLS,
@@ -117,7 +119,7 @@ const ConnectionBanner: React.FC<{
         width: '6px', height: '6px', borderRadius: '50%',
         background: 'currentColor', flexShrink: 0,
       }} />
-      {isReconn ? 'Reconnecting to Binance...' : 'Connection lost — data may be stale'}
+      {isReconn ? 'Reconnecting...' : 'Connection lost — data may be stale'}
       {!isReconn && (
         <button onClick={onRetry} style={{
           marginLeft: '4px', padding: '2px 10px',
@@ -150,12 +152,20 @@ PanelHeader.displayName = 'PanelHeader';
 import type { SymbolInfo } from '@/types/market';
 
 const MobileMarketRow: React.FC<{
-  item:     SymbolInfo;
-  isActive: boolean;
-  onSelect: (sym: string) => void;
-}> = React.memo(({ item, isActive, onSelect }) => {
+  item:      SymbolInfo;
+  isActive:  boolean;
+  onSelect:  (sym: string) => void;
+  tickerMap: TickerMap;
+}> = React.memo(({ item, isActive, onSelect, tickerMap }) => {
   const handleClick = useCallback(() => onSelect(item.symbol), [item.symbol, onSelect]);
-  const changeColor = 'rgba(255,255,255,0.55)'; // static — no live ticker in list
+
+  const snap      = tickerMap.get(item.symbol.toUpperCase());
+  const price     = snap?.lastPrice ?? 0;
+  const changePct = snap?.changePct ?? 0;
+  const vol       = snap?.volume24h ?? item.volume24h ?? 0;
+  const isUp      = changePct >= 0;
+  const changeColor = isUp ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
+  const changeBg    = isUp ? 'rgba(38,166,154,0.13)' : 'rgba(239,83,80,0.13)';
 
   return (
     <div
@@ -164,50 +174,64 @@ const MobileMarketRow: React.FC<{
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') handleClick(); }}
       style={{
-        display: 'flex', alignItems: 'center', gap: '12px',
-        padding: '10px 16px',
-        borderBottom: '1px solid rgba(255,255,255,0.04)',
+        display: 'flex', alignItems: 'center', gap: '11px',
+        padding: '9px 14px',
+        borderBottom: '1px solid rgba(255,255,255,0.035)',
         cursor: 'pointer',
-        background: isActive ? 'rgba(242,142,44,0.06)' : 'transparent',
-        borderLeft: isActive ? '3px solid rgba(242,142,44,1)' : '3px solid transparent',
+        background: isActive ? 'rgba(242,142,44,0.05)' : 'transparent',
+        borderLeft: isActive ? '2px solid rgba(242,142,44,1)' : '2px solid transparent',
         userSelect: 'none',
         WebkitTapHighlightColor: 'transparent',
+        transition: 'background 80ms',
       }}
       onMouseEnter={(e) => {
-        if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)';
+        if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.025)';
       }}
       onMouseLeave={(e) => {
         if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'transparent';
       }}
     >
-      <CoinLogo symbol={item.base} size={32} />
+      <CoinLogo symbol={item.base} size={34} />
+
+      {/* Symbol + Volume */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
           <span style={{
-            fontSize: '13px', fontWeight: 700,
+            fontSize: '13px', fontWeight: 700, letterSpacing: '-0.01em',
             color: isActive ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.92)',
           }}>
             {item.base}
           </span>
-          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.28)' }}>
+          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', fontWeight: 600 }}>
             /{item.quote}
           </span>
-          {isActive && (
-            <span style={{
-              fontSize: '7px', fontWeight: 700, padding: '1px 4px',
-              border: '1px solid rgba(242,142,44,0.4)', borderRadius: '2px',
-              color: 'rgba(242,142,44,1)', letterSpacing: '0.06em',
-            }}>ACTIVE</span>
-          )}
         </div>
-        {item.volume24h && item.volume24h > 0 && (
-          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', marginTop: '2px' }}>
-            Vol {formatCompact(item.volume24h)}
-          </div>
-        )}
+        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.22)', marginTop: '2px', fontWeight: 500 }}>
+          Vol {vol > 0 ? formatCompact(vol) : '—'}
+        </div>
       </div>
-      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-        <div style={{ fontSize: '11px', fontWeight: 700, color: changeColor }}>—</div>
+
+      {/* Price + Change pill */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', flexShrink: 0 }}>
+        <span style={{
+          fontSize: '13px', fontWeight: 700, letterSpacing: '-0.01em',
+          color: 'rgba(255,255,255,0.92)',
+          fontVariantNumeric: 'tabular-nums',
+        }}>
+          {price > 0 ? formatPrice(price) : '—'}
+        </span>
+        {snap ? (
+          <span style={{
+            fontSize: '10px', fontWeight: 700,
+            padding: '2px 6px', borderRadius: '3px',
+            background: changeBg, color: changeColor,
+            letterSpacing: '0.02em',
+          }}>
+            {isUp ? '+' : ''}{changePct.toFixed(2)}%
+          </span>
+        ) : (
+          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.18)', fontWeight: 600 }}>—</span>
+        )}
       </div>
     </div>
   );
@@ -219,7 +243,8 @@ const MobileMarketList: React.FC<{
   loading:      boolean;
   activeSymbol: string;
   onSelect:     (sym: string) => void;
-}> = React.memo(({ pairs, loading, activeSymbol, onSelect }) => {
+  tickerMap:    TickerMap;
+}> = React.memo(({ pairs, loading, activeSymbol, onSelect, tickerMap }) => {
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -284,11 +309,16 @@ const MobileMarketList: React.FC<{
         flexShrink: 0,
       }}>
         <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.22)', letterSpacing: '0.08em' }}>
-          SYMBOL
+          SYMBOL / VOLUME
         </span>
-        <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.22)', letterSpacing: '0.08em' }}>
-          {loading ? 'LOADING...' : filtered.length + ' PAIRS'}
-        </span>
+        <div style={{ display: 'flex', gap: '20px' }}>
+          <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.22)', letterSpacing: '0.08em' }}>
+            PRICE
+          </span>
+          <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.22)', letterSpacing: '0.08em', minWidth: '44px', textAlign: 'right' }}>
+            {loading ? 'LOADING...' : filtered.length + ' PAIRS'}
+          </span>
+        </div>
       </div>
 
       {/* List */}
@@ -299,6 +329,7 @@ const MobileMarketList: React.FC<{
             item={item}
             isActive={item.symbol === activeSymbol}
             onSelect={onSelect}
+            tickerMap={tickerMap}
           />
         ))}
         {filtered.length === 0 && (
@@ -329,6 +360,7 @@ const Index: React.FC = () => {
   const prevMidRef = useRef<number | null>(null);
 
   const { pairs, loading: pairsLoading, error: pairsError } = useMarketPairs();
+  const allTickers = useAllTickers();
 
   const symbolInfo = useMemo(() => {
     const found = pairs.find((s) => s.symbol === activeSymbol);
@@ -601,6 +633,7 @@ const Index: React.FC = () => {
               loading={pairsLoading}
               activeSymbol={activeSymbol}
               onSelect={handleSymbolChange}
+              tickerMap={allTickers}
             />
           </div>
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'chart'  ? 'flex' : 'none', flexDirection: 'column' }}>{chartPanel}</div>
