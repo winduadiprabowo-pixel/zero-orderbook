@@ -23,6 +23,9 @@ import CoinLogo                   from '@/components/CoinLogo';
 import CvdChart                   from '@/components/CvdChart';
 
 import LicenseModal, { ProLock } from '@/components/LicenseGate';
+import ExchangeSwitcher        from '@/components/ExchangeSwitcher';
+import { type ExchangeId, getExchange } from '@/hooks/useExchange';
+import { useMultiExchangeWs }  from '@/hooks/useMultiExchangeWs';
 import { useProAccess }          from '@/hooks/useProAccess';
 
 import { useOrderBook }    from '@/hooks/useOrderBook';
@@ -353,6 +356,15 @@ MobileMarketList.displayName = 'MobileMarketList';
 const Index: React.FC = () => {
   const { isPro, unlock }      = useProAccess();
   const [showProModal,  setShowProModal]  = useState(false);
+  // Exchange state — persist across refreshes
+  const [exchange, setExchange] = useState<ExchangeId>(() => {
+    try { return (localStorage.getItem('zero_exchange') as ExchangeId) ?? 'bybit'; } catch { return 'bybit'; }
+  });
+  const handleExchangeChange = useCallback((ex: ExchangeId) => {
+    setExchange(ex);
+    try { localStorage.setItem('zero_exchange', ex); } catch {}
+  }, []);
+
   // Persist symbol + interval across refreshes
   const [activeSymbol, setActiveSymbol] = useState<string>(() => {
     try { return localStorage.getItem('zero_symbol') ?? 'btcusdt'; } catch { return 'btcusdt'; }
@@ -377,9 +389,14 @@ const Index: React.FC = () => {
     return found ?? PINNED_SYMBOLS.find((s) => s.symbol === activeSymbol) ?? PINNED_SYMBOLS[0];
   }, [pairs, activeSymbol]);
 
-  const { bids, asks, status: obStatus, lastUpdate, retry: obRetry, latencyMs } = useOrderBook(activeSymbol);
-  const { ticker, status: tickerStatus }                              = useTicker(activeSymbol);
-  const { trades, cvdPoints }                                         = useTrades(activeSymbol);
+  // Multi-exchange unified data
+  const exData = useMultiExchangeWs(exchange, activeSymbol);
+  const { bids, asks, trades, cvdPoints, ticker } = exData;
+  const obStatus     = exData.status;
+  const tickerStatus = exData.status;
+  const latencyMs    = exData.latencyMs;
+  const lastUpdate   = Date.now(); // always fresh
+  const obRetry      = useCallback(() => {}, []); // handled internally by hook
   const { events: liqEvents, stats: liqStats, wsStatus: liqStatus }  = useLiquidations();
   const globalStats                                                   = useGlobalStats();
 
@@ -453,6 +470,7 @@ const Index: React.FC = () => {
       onIntervalChange={handleIntervalChange}
       ticker={ticker}
       symbolInfo={symbolInfo}
+      exchange={exchange}
     />
   );
 
@@ -511,6 +529,8 @@ const Index: React.FC = () => {
         ticker={ticker}
         globalStats={globalStats}
         latencyMs={latencyMs}
+        exchange={exchange}
+        onExchangeChange={handleExchangeChange}
       />
       <ConnectionBanner status={overallStatus} onRetry={obRetry} />
 
