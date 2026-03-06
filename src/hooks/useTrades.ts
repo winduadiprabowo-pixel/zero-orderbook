@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { useBinanceWs } from './useBinanceWs';
+import { useBinanceWs, resolveWsUrl } from './useBinanceWs';
 import type { Trade, ConnectionStatus } from '@/types/market';
 
 const MAX_TRADES = 50;
@@ -22,8 +22,13 @@ export function useTrades(symbol: string) {
     setTrades((prev) => [trade, ...prev].slice(0, MAX_TRADES));
   }, []);
 
+  // ✅ FIX: tanpa :9443
+  const wsUrl = resolveWsUrl(
+    'wss://stream.binance.com/ws/' + symbol.toUpperCase() + '@trade'
+  );
+
   const { retry } = useBinanceWs({
-    url: `wss://stream.binance.com:9443/ws/${symbol.toUpperCase()}@trade`,
+    url: wsUrl,
     onMessage: handleMessage,
     onStatusChange: setStatus,
   });
