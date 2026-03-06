@@ -2,13 +2,13 @@ import { useEffect, useRef, useCallback } from 'react';
 import { getReconnectDelay } from '@/lib/formatters';
 import type { ConnectionStatus } from '@/types/market';
 
-// ── Proxy URL from env ────────────────────────────────────────────────────────
-// Set VITE_WS_PROXY in Cloudflare Pages env vars:
-//   e.g. https://zero-orderbook-proxy.YOUR.workers.dev
-const PROXY_BASE = (import.meta.env.VITE_WS_PROXY as string | undefined)?.replace(/\/$/, '') ?? '';
+// FIX v36: hardcode fallback — VITE_WS_PROXY kadang tidak terbaca di CF Pages
+const PROXY_BASE = (import.meta.env.VITE_WS_PROXY as string | undefined)?.replace(/\/$/, '')
+  ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
+
+export { PROXY_BASE };
 
 export function resolveWsUrl(binanceUrl: string): string {
-  if (!PROXY_BASE) return binanceUrl;
   const proxyWs = PROXY_BASE.replace(/^https?:\/\//, 'wss://');
   if (binanceUrl.includes('stream.binance.')) {
     const m = binanceUrl.match(/\/ws\/(.+)$/);
@@ -22,7 +22,6 @@ export function resolveWsUrl(binanceUrl: string): string {
 }
 
 export function resolveRestUrl(binanceUrl: string): string {
-  if (!PROXY_BASE) return binanceUrl;
   if (binanceUrl.includes('api.binance.com/api/')) {
     return binanceUrl.replace('https://api.binance.com', PROXY_BASE);
   }
