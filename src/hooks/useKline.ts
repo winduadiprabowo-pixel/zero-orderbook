@@ -56,7 +56,7 @@ export function useKline(symbol: string, interval: Interval) {
   }, []);
 
   const { retry } = useBinanceWs({
-    url: `wss://stream.binance.com:9443/ws/${symbol}@kline_${interval}`,
+    url: `wss://stream.binance.com:9443/ws/${symbol.toUpperCase()}@kline_${interval}`,
     onMessage: handleMessage,
     onStatusChange: setStatus,
   });
