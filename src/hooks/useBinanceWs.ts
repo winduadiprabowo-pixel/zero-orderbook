@@ -10,11 +10,11 @@ const PROXY_BASE = (import.meta.env.VITE_WS_PROXY as string | undefined)?.replac
 export function resolveWsUrl(binanceUrl: string): string {
   if (!PROXY_BASE) return binanceUrl;
   const proxyWs = PROXY_BASE.replace(/^https?:\/\//, 'wss://');
-  if (binanceUrl.includes('stream.binance.com')) {
+  if (binanceUrl.includes('stream.binance.')) {
     const m = binanceUrl.match(/\/ws\/(.+)$/);
     return m ? `${proxyWs}/ws/${m[1]}` : binanceUrl;
   }
-  if (binanceUrl.includes('fstream.binance.com')) {
+  if (binanceUrl.includes('fstream.binance.')) {
     const m = binanceUrl.match(/\/ws\/(.+)$/);
     return m ? `${proxyWs}/fstream/${m[1]}` : binanceUrl;
   }
