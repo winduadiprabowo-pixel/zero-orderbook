@@ -21,7 +21,7 @@ export function useTicker(symbol: string) {
   }, []);
 
   const { retry } = useBinanceWs({
-    url: `wss://stream.binance.com:9443/ws/${symbol}@ticker`,
+    url: `wss://stream.binance.com:9443/ws/${symbol.toUpperCase()}@ticker`,
     onMessage: handleMessage,
     onStatusChange: setStatus,
   });
