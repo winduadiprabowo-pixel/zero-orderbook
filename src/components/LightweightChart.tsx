@@ -288,6 +288,21 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
   const [chartReady, setChartReady] = useState(false);
 
   const dec = useMemo(() => Math.min(symbolInfo?.priceDec ?? 2, 6), [symbolInfo?.priceDec]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const hiddenRef = useRef(false);
+
+  // ── v50: Visibility throttle — pause render when tab hidden ─────────────────
+  useEffect(() => {
+    const onVis = () => {
+      hiddenRef.current = document.hidden;
+      if (!document.hidden && chartRef.current && containerRef.current) {
+        const el = containerRef.current;
+        chartRef.current.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
 
   // ── Create chart ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -432,6 +447,7 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
 
       ws.onmessage = (ev) => {
         if (!mountedRef.current) return;
+        if (hiddenRef.current) return; // v50: skip render when tab hidden
         try {
           const d = JSON.parse(ev.data as string) as {
             k: { t: number; o: string; h: string; l: string; c: string; v: string; x: boolean };
@@ -498,10 +514,24 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
   }, []);
 
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', height: '100%',
-      background: 'rgba(10,13,20,1)',
-    }}>
+    <div
+      className={isFullscreen ? 'chart-fullscreen' : undefined}
+      style={{
+        display: 'flex', flexDirection: 'column', height: '100%',
+        background: 'rgba(10,13,20,1)',
+        position: isFullscreen ? 'fixed' : 'relative',
+      }}
+    >
+      {/* v48: Fullscreen close button */}
+      {isFullscreen && (
+        <button
+          className="chart-fullscreen-btn"
+          onClick={() => setIsFullscreen(false)}
+          aria-label="Exit fullscreen"
+        >
+          ✕ EXIT
+        </button>
+      )}
       {/* Mobile stats strip */}
       {ticker && symbolInfo && (
         <div className="mobile-chart-stats">
@@ -547,6 +577,22 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
 
         <div style={{ flex: 1 }} />
         <WsStatusDot connected={wsLive} />
+        <button
+          onClick={() => setIsFullscreen((f) => !f)}
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen chart'}
+          style={{
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            padding: '2px 6px', borderRadius: '3px',
+            color: 'rgba(255,255,255,0.25)', fontSize: '11px',
+            fontFamily: 'inherit', flexShrink: 0,
+            transition: 'color 100ms',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.65)'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.25)'; }}
+          aria-label="Toggle fullscreen"
+        >
+          {isFullscreen ? '⊡' : '⊞'}
+        </button>
         <span style={{ fontSize: '7.5px', fontWeight: 600, color: 'rgba(255,255,255,0.10)', letterSpacing: '0.06em', flexShrink: 0, marginLeft: '8px' }}>
           LIGHTWEIGHT
         </span>
