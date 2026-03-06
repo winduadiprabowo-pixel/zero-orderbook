@@ -14,7 +14,8 @@ export function useTicker(symbol: string) {
 
   const connect = useCallback((attempt = 0) => {
     if (!mountedRef.current) return;
-    const wsUrl = PROXY_WS + '/ws/' + symbol.toUpperCase() + '@ticker';
+    // FIX: lowercase symbol untuk Binance WS stream
+    const wsUrl = PROXY_WS + '/ws/' + symbol.toLowerCase() + '@ticker';
     setStatus('reconnecting');
     try {
       const ws = new WebSocket(wsUrl);
