@@ -1,5 +1,5 @@
 /**
- * Index.tsx — ZERØ ORDER BOOK v34
+ * Index.tsx — ZERØ ORDER BOOK v39
  * DESKTOP: Chart full width (no sidebar) | Pair selector in header
  * MOBILE:  Market list first → tap pair → chart view (Bybit-style)
  * TABLET:  Chart top + tabs bottom
@@ -7,7 +7,7 @@
  * rgba() only ✓ · IBM Plex Mono ✓ · PRO CTA preserved ✓
  */
 
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Panel, PanelGroup } from 'react-resizable-panels';
 
 import Header        from '@/components/Header';
@@ -20,6 +20,7 @@ import LiquidationFeed            from '@/components/LiquidationFeed';
 import ResizeHandle               from '@/components/ResizeHandle';
 import SymbolSearch               from '@/components/SymbolSearch';
 import CoinLogo                   from '@/components/CoinLogo';
+import CvdChart                   from '@/components/CvdChart';
 
 import LicenseModal, { ProLock } from '@/components/LicenseGate';
 import { useProAccess }          from '@/hooks/useProAccess';
@@ -44,7 +45,7 @@ import {
 
 // ── Mobile tabs ───────────────────────────────────────────────────────────────
 
-type MobileTab = 'markets' | 'chart' | 'book' | 'depth' | 'trades' | 'liqs';
+type MobileTab = 'markets' | 'chart' | 'book' | 'depth' | 'trades' | 'cvd' | 'liqs';
 
 const MOBILE_TABS: { id: MobileTab; label: string; icon: string }[] = [
   { id: 'markets', label: 'MARKETS', icon: '◉' },
@@ -52,6 +53,7 @@ const MOBILE_TABS: { id: MobileTab; label: string; icon: string }[] = [
   { id: 'book',    label: 'BOOK',    icon: '◫' },
   { id: 'depth',   label: 'DEPTH',   icon: '◈' },
   { id: 'trades',  label: 'TRADES',  icon: '⚡' },
+  { id: 'cvd',     label: 'CVD',     icon: '△' },
   { id: 'liqs',    label: 'LIQS',    icon: '💀' },
 ];
 
@@ -367,9 +369,9 @@ const Index: React.FC = () => {
     return found ?? PINNED_SYMBOLS.find((s) => s.symbol === activeSymbol) ?? PINNED_SYMBOLS[0];
   }, [pairs, activeSymbol]);
 
-  const { bids, asks, status: obStatus, lastUpdate, retry: obRetry } = useOrderBook(activeSymbol);
+  const { bids, asks, status: obStatus, lastUpdate, retry: obRetry, latencyMs } = useOrderBook(activeSymbol);
   const { ticker, status: tickerStatus }                              = useTicker(activeSymbol);
-  const { trades }                                                    = useTrades(activeSymbol);
+  const { trades, cvdPoints }                                         = useTrades(activeSymbol);
   const { events: liqEvents, stats: liqStats, wsStatus: liqStatus }  = useLiquidations();
   const globalStats                                                   = useGlobalStats();
 
@@ -378,10 +380,11 @@ const Index: React.FC = () => {
     return (bids[0].price + asks[0].price) / 2;
   }, [bids, asks]);
 
-  const prevMidPrice = useMemo(() => {
-    const prev = prevMidRef.current;
-    prevMidRef.current = midPrice;
-    return prev;
+  // FIX v39: prevMidPrice via useEffect — useMemo with side effects is anti-pattern
+  // (React can re-compute memo twice in Strict Mode, corrupting prevMidRef)
+  const [prevMidPrice, setPrevMidPrice] = useState<number | null>(null);
+  useEffect(() => {
+    setPrevMidPrice(midPrice);
   }, [midPrice]);
 
   const activePriceDec = useMemo(() => {
@@ -463,6 +466,7 @@ const Index: React.FC = () => {
   );
 
   const tradesPanel = <RecentTrades trades={trades} />;
+  const cvdPanel = <CvdChart points={cvdPoints} />;
   const liqsPanel = (
     <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="LIQUIDATION FEED">
       <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />
@@ -494,6 +498,7 @@ const Index: React.FC = () => {
         lastUpdate={lastUpdate}
         ticker={ticker}
         globalStats={globalStats}
+        latencyMs={latencyMs}
       />
       <ConnectionBanner status={overallStatus} onRetry={obRetry} />
 
@@ -533,11 +538,15 @@ const Index: React.FC = () => {
           <Panel id="right" defaultSize={23} minSize={14} maxSize={35}
             style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <PanelGroup direction="vertical" autoSaveId="zero-ob-v-right" style={{ height: '100%' }}>
-              <Panel id="trades" defaultSize={50} minSize={25} style={{ overflow: 'hidden' }}>
+              <Panel id="trades" defaultSize={38} minSize={20} style={{ overflow: 'hidden' }}>
                 <div style={{ ...P }}>{tradesPanel}</div>
               </Panel>
+              <ResizeHandle direction="vertical" id="v-right-cvd" />
+              <Panel id="cvd" defaultSize={24} minSize={16} style={{ overflow: 'hidden' }}>
+                <div style={{ ...P }}>{cvdPanel}</div>
+              </Panel>
               <ResizeHandle direction="vertical" id="v-right" />
-              <Panel id="liqs" defaultSize={50} minSize={25} style={{ overflow: 'hidden' }}>
+              <Panel id="liqs" defaultSize={38} minSize={20} style={{ overflow: 'hidden' }}>
                 <div style={{ ...P }}>{liqsPanel}</div>
               </Panel>
             </PanelGroup>
@@ -650,6 +659,7 @@ const Index: React.FC = () => {
           </div>
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'depth'  ? 'flex' : 'none', flexDirection: 'column' }}>{depthPanel}</div>
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'trades' ? 'flex' : 'none', flexDirection: 'column' }}>{tradesPanel}</div>
+          <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'cvd'    ? 'flex' : 'none', flexDirection: 'column' }}>{cvdPanel}</div>
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'liqs'   ? 'flex' : 'none', flexDirection: 'column' }}>{liqsPanel}</div>
         </div>
 
