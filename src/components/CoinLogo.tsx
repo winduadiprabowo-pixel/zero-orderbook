@@ -1,7 +1,9 @@
 /**
- * CoinLogo.tsx — ZERØ ORDER BOOK v34b
- * Coin logos via jsDelivr CDN — no API key, no rate limit, ~400+ coins.
- * Fallback: auto SVG letter icon with unique color per symbol.
+ * CoinLogo.tsx — ZERØ ORDER BOOK v37
+ * Coin logos — multi-source fallback chain:
+ *   1. CoinCap (up-to-date, no API key)
+ *   2. ErikThiart repo (broader coverage)
+ *   3. SVG letter fallback (always works)
  * rgba() only ✓ · React.memo ✓ · displayName ✓
  */
 
@@ -12,12 +14,12 @@ interface CoinLogoProps {
   size?:  number;
 }
 
-function getCdnUrl(symbol: string): string {
-  return (
-    'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/' +
-    symbol.toLowerCase() +
-    '.png'
-  );
+function getSources(symbol: string): string[] {
+  const s = symbol.toLowerCase();
+  return [
+    `https://assets.coincap.io/assets/icons/${s}@2x.png`,
+    `https://raw.githubusercontent.com/ErikThiart/cryptocurrency-icons/master/32/${s}.png`,
+  ];
 }
 
 const FALLBACK_COLORS = [
@@ -64,11 +66,11 @@ const FallbackLogo: React.FC<{ symbol: string; size: number }> = React.memo(({ s
 FallbackLogo.displayName = 'FallbackLogo';
 
 const CoinLogo: React.FC<CoinLogoProps> = React.memo(({ symbol, size = 24 }) => {
-  const upper = symbol.toUpperCase();
-  const [failed, setFailed] = useState(false);
-  const url = useMemo(() => getCdnUrl(upper), [upper]);
+  const upper   = symbol.toUpperCase();
+  const sources = useMemo(() => getSources(upper), [upper]);
+  const [srcIdx, setSrcIdx] = useState(0);
 
-  if (failed) {
+  if (srcIdx >= sources.length) {
     return <FallbackLogo symbol={upper} size={size} />;
   }
 
@@ -85,11 +87,11 @@ const CoinLogo: React.FC<CoinLogoProps> = React.memo(({ symbol, size = 24 }) => 
       background: 'rgba(255,255,255,0.04)',
     }}>
       <img
-        src={url}
+        src={sources[srcIdx]}
         alt={upper}
         width={size}
         height={size}
-        onError={() => setFailed(true)}
+        onError={() => setSrcIdx((i) => i + 1)}
         style={{
           width: size,
           height: size,
