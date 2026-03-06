@@ -1,12 +1,17 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { resolveWsUrl } from './useBinanceWs';
-import type { OrderBookLevel, ConnectionStatus } from '@/types/market';
-import { getReconnectDelay } from '@/lib/formatters';
+/**
+ * useOrderBook.ts — ZERØ ORDER BOOK
+ * REST snapshot dulu via proxy, lalu WS stream update.
+ * Proxy hardcoded — tidak depend on VITE_WS_PROXY env var.
+ */
 
-interface DepthSnapshot {
-  bids: [string, string][];
-  asks: [string, string][];
-}
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { getReconnectDelay } from '@/lib/formatters';
+import type { OrderBookLevel, ConnectionStatus } from '@/types/market';
+
+const PROXY_REST = 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
+const PROXY_WS   = 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
+
+interface RawLevel { price: number; size: number; total: number; }
 
 function processLevels(raw: [string, string][], isAsk: boolean, levels: number): OrderBookLevel[] {
   const result = raw
@@ -14,14 +19,14 @@ function processLevels(raw: [string, string][], isAsk: boolean, levels: number):
     .filter((l) => l.size > 0)
     .sort((a, b) => isAsk ? a.price - b.price : b.price - a.price)
     .slice(0, levels);
-  let cumulative = 0;
-  for (const lvl of result) { cumulative += lvl.size; lvl.total = cumulative; }
+  let cum = 0;
+  for (const lvl of result) { cum += lvl.size; lvl.total = cum; }
   return result;
 }
 
 export function useOrderBook(symbol: string, levels = 20) {
-  const [bids, setBids] = useState<OrderBookLevel[]>([]);
-  const [asks, setAsks] = useState<OrderBookLevel[]>([]);
+  const [bids, setBids]     = useState<OrderBookLevel[]>([]);
+  const [asks, setAsks]     = useState<OrderBookLevel[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [lastUpdate, setLastUpdate] = useState(0);
 
@@ -30,12 +35,26 @@ export function useOrderBook(symbol: string, levels = 20) {
   const attemptRef = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // ── REST snapshot ────────────────────────────────────────────────────────
+  const fetchSnapshot = useCallback(async (signal: AbortSignal) => {
+    try {
+      const res = await fetch(
+        PROXY_REST + '/api/v3/depth?symbol=' + symbol.toUpperCase() + '&limit=' + levels,
+        { signal }
+      );
+      if (!res.ok) return;
+      const d = await res.json() as { bids: [string,string][]; asks: [string,string][] };
+      if (!mountedRef.current) return;
+      setBids(processLevels(d.bids, false, levels));
+      setAsks(processLevels(d.asks, true, levels));
+      setLastUpdate(Date.now());
+    } catch { /* aborted or error */ }
+  }, [symbol, levels]);
+
+  // ── WS stream ────────────────────────────────────────────────────────────
   const connect = useCallback((attempt = 0) => {
     if (!mountedRef.current) return;
-    // ✅ Hardcode URL proxy langsung — tidak depend on env var
-    const PROXY = 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
-    const wsUrl = PROXY + '/ws/' + symbol.toUpperCase() + '@depth20@500ms';
-
+    const wsUrl = PROXY_WS + '/ws/' + symbol.toUpperCase() + '@depth20@500ms';
     setStatus('reconnecting');
     try {
       const ws = new WebSocket(wsUrl);
@@ -48,7 +67,7 @@ export function useOrderBook(symbol: string, levels = 20) {
       ws.onmessage = (event: MessageEvent) => {
         if (!mountedRef.current) return;
         try {
-          const d = JSON.parse(event.data as string) as DepthSnapshot;
+          const d = JSON.parse(event.data as string) as { bids: [string,string][]; asks: [string,string][] };
           if (!d.bids || !d.asks) return;
           setBids(processLevels(d.bids, false, levels));
           setAsks(processLevels(d.asks, true, levels));
@@ -74,19 +93,32 @@ export function useOrderBook(symbol: string, levels = 20) {
 
   useEffect(() => {
     mountedRef.current = true;
+    const controller = new AbortController();
+
+    // Ambil snapshot dulu biar langsung ada data
+    fetchSnapshot(controller.signal);
+    // Lalu connect WS untuk live updates
     connect(0);
+
     return () => {
       mountedRef.current = false;
+      controller.abort();
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
-  }, [connect]);
+  }, [fetchSnapshot, connect]);
 
   const retry = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
+    const controller = new AbortController();
+    fetchSnapshot(controller.signal);
     connect(0);
-  }, [connect]);
+  }, [fetchSnapshot, connect]);
 
   return { bids, asks, status, lastUpdate, retry };
 }
