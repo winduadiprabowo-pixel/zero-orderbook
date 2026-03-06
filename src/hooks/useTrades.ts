@@ -1,8 +1,12 @@
+/**
+ * useTrades.ts — ZERØ ORDER BOOK v36
+ * FIX: pakai PROXY_BASE dari useBinanceWs — no hardcode duplikasi
+ */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getReconnectDelay } from '@/lib/formatters';
+import { PROXY_BASE } from './useBinanceWs';
 import type { Trade, ConnectionStatus } from '@/types/market';
 
-const PROXY_WS  = 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 const MAX_TRADES = 50;
 
 export function useTrades(symbol: string) {
@@ -16,13 +20,17 @@ export function useTrades(symbol: string) {
 
   const connect = useCallback((attempt = 0) => {
     if (!mountedRef.current) return;
-    // WS stream: LOWERCASE
-    const wsUrl = PROXY_WS + '/ws/' + symbol.toLowerCase() + '@trade';
+    const proxyWs = PROXY_BASE.replace(/^https?:\/\//, 'wss://');
+    const wsUrl   = proxyWs + '/ws/' + symbol.toLowerCase() + '@trade';
     setStatus('reconnecting');
     try {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
-      ws.onopen = () => { if (!mountedRef.current) return; attemptRef.current = 0; setStatus('connected'); };
+      ws.onopen = () => {
+        if (!mountedRef.current) return;
+        attemptRef.current = 0;
+        setStatus('connected');
+      };
       ws.onmessage = (event: MessageEvent) => {
         if (!mountedRef.current) return;
         try {
