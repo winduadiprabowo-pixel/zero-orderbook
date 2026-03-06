@@ -1,37 +1,68 @@
-import { useState, useCallback, useRef } from 'react';
-import { useBinanceWs, resolveWsUrl } from './useBinanceWs';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { getReconnectDelay } from '@/lib/formatters';
 import type { Trade, ConnectionStatus } from '@/types/market';
 
+const PROXY_WS = 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 const MAX_TRADES = 50;
 
 export function useTrades(symbol: string) {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
-  const idRef = useRef(0);
+  const idRef      = useRef(0);
+  const wsRef      = useRef<WebSocket | null>(null);
+  const mountedRef = useRef(true);
+  const attemptRef = useRef(0);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const handleMessage = useCallback((data: unknown) => {
-    const d = data as { t: number; p: string; q: string; m: boolean; T: number };
-    if (!d.p) return;
-    const trade: Trade = {
-      id:           String(idRef.current++),
-      time:         d.T || Date.now(),
-      price:        parseFloat(d.p),
-      size:         parseFloat(d.q),
-      isBuyerMaker: d.m,
+  const connect = useCallback((attempt = 0) => {
+    if (!mountedRef.current) return;
+    const wsUrl = PROXY_WS + '/ws/' + symbol.toUpperCase() + '@trade';
+    setStatus('reconnecting');
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      ws.onopen = () => { if (!mountedRef.current) return; attemptRef.current = 0; setStatus('connected'); };
+      ws.onmessage = (event: MessageEvent) => {
+        if (!mountedRef.current) return;
+        try {
+          const d = JSON.parse(event.data as string) as { t: number; p: string; q: string; m: boolean; T: number };
+          if (!d.p) return;
+          const trade: Trade = {
+            id: String(idRef.current++),
+            time: d.T || Date.now(),
+            price: parseFloat(d.p),
+            size: parseFloat(d.q),
+            isBuyerMaker: d.m,
+          };
+          setTrades((prev) => [trade, ...prev].slice(0, MAX_TRADES));
+        } catch { /* ignore */ }
+      };
+      ws.onclose = () => {
+        if (!mountedRef.current) return;
+        setStatus('disconnected');
+        timeoutRef.current = setTimeout(() => { if (mountedRef.current) connect(attempt + 1); }, getReconnectDelay(attempt));
+      };
+      ws.onerror = () => ws.close();
+    } catch {
+      timeoutRef.current = setTimeout(() => { if (mountedRef.current) connect(attempt + 1); }, getReconnectDelay(attempt));
+    }
+  }, [symbol]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    connect(0);
+    return () => {
+      mountedRef.current = false;
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
     };
-    setTrades((prev) => [trade, ...prev].slice(0, MAX_TRADES));
-  }, []);
+  }, [connect]);
 
-  // ✅ FIX: tanpa :9443
-  const wsUrl = resolveWsUrl(
-    'wss://stream.binance.com/ws/' + symbol.toUpperCase() + '@trade'
-  );
-
-  const { retry } = useBinanceWs({
-    url: wsUrl,
-    onMessage: handleMessage,
-    onStatusChange: setStatus,
-  });
+  const retry = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
+    connect(0);
+  }, [connect]);
 
   return { trades, status, retry };
 }
