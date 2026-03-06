@@ -12,7 +12,7 @@ import { Panel, PanelGroup } from 'react-resizable-panels';
 
 import Header        from '@/components/Header';
 import OrderBook, { PressureBar } from '@/components/OrderBook';
-import TradingViewChart           from '@/components/TradingViewChart';
+import LightweightChart           from '@/components/LightweightChart';
 import DepthChart                 from '@/components/DepthChart';
 import RecentTrades               from '@/components/RecentTrades';
 import MarketData                 from '@/components/MarketData';
@@ -461,7 +461,7 @@ const Index: React.FC = () => {
   };
 
   const chartPanel = (
-    <TradingViewChart
+    <LightweightChart
       symbol={activeSymbol}
       interval={interval}
       onIntervalChange={handleIntervalChange}
