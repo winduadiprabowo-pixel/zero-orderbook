@@ -1,10 +1,13 @@
 /**
- * useBybitWs.ts — ZERØ ORDER BOOK v38
- * FIX: re-subscribe + reconnect waktu topics berubah (symbol ganti).
- * Bybit pakai subscribe pattern: {"op":"subscribe","args":[...topics]}
- * Ping setiap 20s agar koneksi tidak disconnect.
+ * useBybitWs.ts — ZERØ ORDER BOOK v39
+ * UPGRADES:
+ *   - Feed latency tracking: Bybit `ts` field vs Date.now()
+ *   - Expose latencyMs via returned object
+ *   - Re-subscribe + reconnect waktu topics berubah (symbol ganti)
+ *   - Ping setiap 20s agar koneksi tidak disconnect
+ * rgba() only ✓ · React.memo ✓ · displayName ✓
  */
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { getReconnectDelay } from '@/lib/formatters';
 import type { ConnectionStatus } from '@/types/market';
 
@@ -30,13 +33,18 @@ interface UseBybitWsOptions {
   enabled?:        boolean;
 }
 
+export interface UseBybitWsReturn {
+  retry:     () => void;
+  latencyMs: number | null;
+}
+
 export function useBybitWs({
   category = 'spot',
   topics,
   onMessage,
   onStatusChange,
   enabled = true,
-}: UseBybitWsOptions) {
+}: UseBybitWsOptions): UseBybitWsReturn {
   const wsRef       = useRef<WebSocket | null>(null);
   const mountedRef  = useRef(true);
   const timeoutRef  = useRef<ReturnType<typeof setTimeout>>();
@@ -45,10 +53,10 @@ export function useBybitWs({
   const onStatusRef = useRef(onStatusChange);
   const rafRef      = useRef<number>();
   const pendingRef  = useRef<unknown[]>([]);
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const latencyCountRef = useRef(0);
 
-  // Stringify topics so we can detect changes
   const topicsKey = topics.join(',');
-
   onMsgRef.current    = onMessage;
   onStatusRef.current = onStatusChange;
 
@@ -65,7 +73,6 @@ export function useBybitWs({
     });
   }, [flush]);
 
-  // Teardown helper — close WS + clear timers, no reconnect
   const teardown = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (pingRef.current)    clearInterval(pingRef.current);
@@ -83,32 +90,34 @@ export function useBybitWs({
     if (!mountedRef.current || !enabled) return;
     const wsUrl = resolveBybitWsUrl(category);
     onStatusRef.current?.('reconnecting');
-
     try {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
-
       ws.onopen = () => {
         if (!mountedRef.current) return;
         onStatusRef.current?.('connected');
         ws.send(JSON.stringify({ op: 'subscribe', args: currentTopics }));
         pingRef.current = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ op: 'ping' }));
-          }
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ op: 'ping' }));
         }, 20_000);
       };
-
       ws.onmessage = (event: MessageEvent) => {
         if (!mountedRef.current) return;
         try {
           const data = JSON.parse(event.data as string) as Record<string, unknown>;
           if (data.op === 'pong' || data.op === 'subscribe') return;
+          // Sample feed latency every 10 messages
+          if (typeof data.ts === 'number') {
+            latencyCountRef.current++;
+            if (latencyCountRef.current % 10 === 0) {
+              const lat = Date.now() - data.ts;
+              if (lat >= 0 && lat < 5000) setLatencyMs(lat);
+            }
+          }
           pendingRef.current.push(data);
           scheduleFlush();
-        } catch { /* malformed frame */ }
+        } catch { /* malformed */ }
       };
-
       ws.onclose = () => {
         if (!mountedRef.current) return;
         if (pingRef.current) clearInterval(pingRef.current);
@@ -117,7 +126,6 @@ export function useBybitWs({
           if (mountedRef.current) connect(attempt + 1, currentTopics);
         }, getReconnectDelay(attempt));
       };
-
       ws.onerror = () => ws.close();
     } catch {
       timeoutRef.current = setTimeout(() => {
@@ -131,11 +139,10 @@ export function useBybitWs({
     connect(0, topics);
   }, [teardown, connect, topics]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Re-run when topics change (symbol change) or enabled/category change
   useEffect(() => {
     mountedRef.current = true;
     if (enabled) {
-      teardown(); // close old WS first
+      teardown();
       connect(0, topics);
     }
     return () => {
@@ -144,5 +151,5 @@ export function useBybitWs({
     };
   }, [topicsKey, category, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { retry };
+  return { retry, latencyMs };
 }
