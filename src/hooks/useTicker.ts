@@ -1,19 +1,18 @@
 /**
- * useTicker.ts — ZERØ ORDER BOOK v37
- * MIGRATION: Binance @ticker WS → Bybit tickers WS
+ * useTicker.ts — ZERØ ORDER BOOK v39
+ * FIX: priceChange delta logic — approximate delta when prevPrice24h absent
+ * FIX: cache prevPrice24h in ref so delta is always accurate
  *
- * Bybit spot ticker fields (bisa snapshot atau delta — sebagian field mungkin kosong):
+ * Bybit spot ticker fields:
  *   lastPrice     — harga terakhir
- *   prevPrice24h  — harga 24 jam lalu (untuk hitung priceChange absolut)
- *   price24hPcnt  — persentase perubahan 24h, format desimal (e.g. "0.0123" = +1.23%)
+ *   prevPrice24h  — harga 24 jam lalu
+ *   price24hPcnt  — persentase desimal (e.g. "0.0123" = +1.23%)
  *   highPrice24h  — high 24h
  *   lowPrice24h   — low 24h
  *   volume24h     — volume base 24h
  *   turnover24h   — volume quote 24h
- *
- * Delta: hanya field yang berubah yang dikirim → merge dengan state sebelumnya.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { TickerData, ConnectionStatus } from '@/types/market';
 import { useBybitWs } from './useBybitWs';
 
@@ -44,23 +43,33 @@ export function useTicker(symbol: string) {
   const [ticker, setTicker] = useState<TickerData | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
 
+  // FIX: cache prevPrice24h in ref so it's always available even on partial delta
+  const prevPrice24hRef = useRef<number>(0);
+
   const onMessage = useCallback((raw: unknown) => {
     const msg = raw as BybitTickerMsg;
     if (!msg.topic?.startsWith('tickers.') || !msg.data) return;
     const d = msg.data;
 
+    // Update cached prevPrice24h when Bybit sends it
+    if (d.prevPrice24h) {
+      const p = parseFloat(d.prevPrice24h);
+      if (p > 0) prevPrice24hRef.current = p;
+    }
+
     setTicker((prev) => {
       const base = prev ?? EMPTY_TICKER;
 
-      const lastPrice  = d.lastPrice    ? parseFloat(d.lastPrice)    : base.lastPrice;
-      const prev24h    = d.prevPrice24h ? parseFloat(d.prevPrice24h) : 0;
+      const lastPrice = d.lastPrice ? parseFloat(d.lastPrice) : base.lastPrice;
 
-      // priceChange = lastPrice - 24h ago price (hanya update kalau prevPrice24h ada)
+      // FIX: priceChange uses cached prevPrice24h ref, not just current msg
+      const prev24h = prevPrice24hRef.current;
       const priceChange = prev24h > 0
         ? lastPrice - prev24h
-        : base.priceChange;
+        // Fallback: approximate using previous priceChange + price movement
+        : base.priceChange + (lastPrice - base.lastPrice);
 
-      // price24hPcnt dari Bybit sudah desimal → kalikan 100 untuk %
+      // price24hPcnt from Bybit is decimal → multiply by 100
       const priceChangePercent = d.price24hPcnt
         ? parseFloat(d.price24hPcnt) * 100
         : base.priceChangePercent;
@@ -77,11 +86,11 @@ export function useTicker(symbol: string) {
     });
   }, []);
 
-  const { retry } = useBybitWs({
+  const { retry, latencyMs } = useBybitWs({
     topics:         [`tickers.${symbol.toUpperCase()}`],
     onMessage,
     onStatusChange: setStatus,
   });
 
-  return { ticker, status, retry };
+  return { ticker, status, retry, latencyMs };
 }
