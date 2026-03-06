@@ -1,15 +1,12 @@
 /**
- * useOrderBook.ts — ZERØ ORDER BOOK
- * REST snapshot dulu via proxy, lalu WS stream update.
- * FIX: WS stream symbol LOWERCASE (btcusdt bukan BTCUSDT)
- * REST tetap UPPERCASE
+ * useOrderBook.ts — ZERØ ORDER BOOK v36
+ * FIX: pakai PROXY_BASE dari useBinanceWs — no hardcode duplikasi
+ * REST snapshot dulu, lalu WS stream update.
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getReconnectDelay } from '@/lib/formatters';
+import { PROXY_BASE } from './useBinanceWs';
 import type { OrderBookLevel, ConnectionStatus } from '@/types/market';
-
-const PROXY_REST = 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
-const PROXY_WS   = 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 
 function processLevels(raw: [string, string][], isAsk: boolean, levels: number): OrderBookLevel[] {
   const result = raw
@@ -23,9 +20,9 @@ function processLevels(raw: [string, string][], isAsk: boolean, levels: number):
 }
 
 export function useOrderBook(symbol: string, levels = 20) {
-  const [bids, setBids]         = useState<OrderBookLevel[]>([]);
-  const [asks, setAsks]         = useState<OrderBookLevel[]>([]);
-  const [status, setStatus]     = useState<ConnectionStatus>('disconnected');
+  const [bids, setBids]             = useState<OrderBookLevel[]>([]);
+  const [asks, setAsks]             = useState<OrderBookLevel[]>([]);
+  const [status, setStatus]         = useState<ConnectionStatus>('disconnected');
   const [lastUpdate, setLastUpdate] = useState(0);
 
   const wsRef      = useRef<WebSocket | null>(null);
@@ -35,9 +32,8 @@ export function useOrderBook(symbol: string, levels = 20) {
 
   const fetchSnapshot = useCallback(async (signal: AbortSignal) => {
     try {
-      // REST: UPPERCASE
       const res = await fetch(
-        PROXY_REST + '/api/v3/depth?symbol=' + symbol.toUpperCase() + '&limit=' + levels,
+        PROXY_BASE + '/api/v3/depth?symbol=' + symbol.toUpperCase() + '&limit=' + levels,
         { signal }
       );
       if (!res.ok) return;
@@ -51,8 +47,9 @@ export function useOrderBook(symbol: string, levels = 20) {
 
   const connect = useCallback((attempt = 0) => {
     if (!mountedRef.current) return;
-    // WS stream: LOWERCASE — Binance requires lowercase for stream names
-    const wsUrl = PROXY_WS + '/ws/' + symbol.toLowerCase() + '@depth20@500ms';
+    // WS URL: wss://proxy/ws/btcusdt@depth20@500ms
+    const proxyWs = PROXY_BASE.replace(/^https?:\/\//, 'wss://');
+    const wsUrl   = proxyWs + '/ws/' + symbol.toLowerCase() + '@depth20@500ms';
     setStatus('reconnecting');
     try {
       const ws = new WebSocket(wsUrl);
