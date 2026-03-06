@@ -2,6 +2,7 @@
  * useOrderBook.ts — ZERØ ORDER BOOK
  * REST snapshot dulu via proxy, lalu WS stream update.
  * Proxy hardcoded — tidak depend on VITE_WS_PROXY env var.
+ * FIX v36: WS stream symbol pakai lowercase (btcusdt bukan BTCUSDT)
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -35,7 +36,7 @@ export function useOrderBook(symbol: string, levels = 20) {
   const attemptRef = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // ── REST snapshot ────────────────────────────────────────────────────────
+  // ── REST snapshot ────────────────────────────────────────────────────────────────────────
   const fetchSnapshot = useCallback(async (signal: AbortSignal) => {
     try {
       const res = await fetch(
@@ -51,10 +52,11 @@ export function useOrderBook(symbol: string, levels = 20) {
     } catch { /* aborted or error */ }
   }, [symbol, levels]);
 
-  // ── WS stream ────────────────────────────────────────────────────────────
+  // ── WS stream ──────────────────────────────────────────────────────────────────────────
   const connect = useCallback((attempt = 0) => {
     if (!mountedRef.current) return;
-    const wsUrl = PROXY_WS + '/ws/' + symbol.toUpperCase() + '@depth20@500ms';
+    // FIX: lowercase symbol untuk Binance WS stream
+    const wsUrl = PROXY_WS + '/ws/' + symbol.toLowerCase() + '@depth20@500ms';
     setStatus('reconnecting');
     try {
       const ws = new WebSocket(wsUrl);
@@ -94,12 +96,8 @@ export function useOrderBook(symbol: string, levels = 20) {
   useEffect(() => {
     mountedRef.current = true;
     const controller = new AbortController();
-
-    // Ambil snapshot dulu biar langsung ada data
     fetchSnapshot(controller.signal);
-    // Lalu connect WS untuk live updates
     connect(0);
-
     return () => {
       mountedRef.current = false;
       controller.abort();
