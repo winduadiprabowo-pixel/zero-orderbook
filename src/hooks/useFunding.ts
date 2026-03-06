@@ -1,4 +1,11 @@
+/**
+ * useFunding.ts — ZERØ ORDER BOOK
+ * Funding rate via CF Worker proxy (resolveRestUrl).
+ * mountedRef ✓ · AbortController ✓
+ */
+
 import { useState, useEffect, useRef } from 'react';
+import { resolveRestUrl } from './useBinanceWs';
 
 interface FundingData {
   fundingRate: string;
@@ -7,8 +14,8 @@ interface FundingData {
 
 export function useFunding(symbol: string) {
   const [funding, setFunding] = useState<FundingData | null>(null);
-  const [error, setError] = useState(false);
-  const mountedRef = useRef(true);
+  const [error, setError]     = useState(false);
+  const mountedRef            = useRef(true);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -16,10 +23,11 @@ export function useFunding(symbol: string) {
 
     const fetchFunding = async () => {
       try {
-        const res = await fetch(
-          `https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol.toUpperCase()}`,
-          { signal: controller.signal }
+        // ✅ FIX: pakai resolveRestUrl → lewat CF Worker proxy
+        const url = resolveRestUrl(
+          'https://fapi.binance.com/fapi/v1/premiumIndex?symbol=' + symbol.toUpperCase()
         );
+        const res = await fetch(url, { signal: controller.signal });
         if (!res.ok) throw new Error('fail');
         const data = await res.json();
         if (mountedRef.current) {
