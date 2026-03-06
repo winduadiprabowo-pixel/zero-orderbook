@@ -1,16 +1,16 @@
 /**
- * Index.tsx — ZERØ ORDER BOOK v25
- * Layout: Sidebar kiri collapsible + react-resizable-panels
- * Performance: @500ms WS · no per-row state · RAF-gated
- * 500+ real Binance pairs · Smart precision · PRO CTA atbwr ✓
- * Desktop ≥1280 · Tablet 768–1279 · Mobile <768
+ * Index.tsx — ZERØ ORDER BOOK v34
+ * DESKTOP: Chart full width (no sidebar) | Pair selector in header
+ * MOBILE:  Market list first → tap pair → chart view (Bybit-style)
+ * TABLET:  Chart top + tabs bottom
+ * Performance: RAF-gated WS · no per-row state · React.memo everywhere
+ * rgba() only ✓ · IBM Plex Mono ✓ · PRO CTA preserved ✓
  */
 
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { Panel, PanelGroup } from 'react-resizable-panels';
 
 import Header        from '@/components/Header';
-import MarketSidebar from '@/components/MarketSidebar';
 import OrderBook, { PressureBar } from '@/components/OrderBook';
 import TradingViewChart           from '@/components/TradingViewChart';
 import DepthChart                 from '@/components/DepthChart';
@@ -19,7 +19,7 @@ import MarketData                 from '@/components/MarketData';
 import LiquidationFeed            from '@/components/LiquidationFeed';
 import ResizeHandle               from '@/components/ResizeHandle';
 import SymbolSearch               from '@/components/SymbolSearch';
-
+import CoinLogo                   from '@/components/CoinLogo';
 
 import LicenseModal, { ProLock } from '@/components/LicenseGate';
 import { useProAccess }          from '@/hooks/useProAccess';
@@ -30,6 +30,7 @@ import { useTrades }       from '@/hooks/useTrades';
 import { useLiquidations } from '@/hooks/useLiquidations';
 import { useGlobalStats }  from '@/hooks/useGlobalStats';
 import { useMarketPairs }  from '@/hooks/useMarketPairs';
+import { formatCompact }   from '@/lib/formatters';
 
 import {
   PINNED_SYMBOLS,
@@ -39,16 +40,17 @@ import {
   type ConnectionStatus,
 } from '@/types/market';
 
-// ── Mobile tab config ─────────────────────────────────────────────────────────
+// ── Mobile tabs ───────────────────────────────────────────────────────────────
 
-type MobileTab = 'book' | 'chart' | 'depth' | 'trades' | 'liqs';
+type MobileTab = 'markets' | 'chart' | 'book' | 'depth' | 'trades' | 'liqs';
 
 const MOBILE_TABS: { id: MobileTab; label: string; icon: string }[] = [
-  { id: 'chart',  label: 'CHART',  icon: '▦'  },
-  { id: 'book',   label: 'BOOK',   icon: '◫'  },
-  { id: 'depth',  label: 'DEPTH',  icon: '◈'  },
-  { id: 'trades', label: 'TRADES', icon: '⚡' },
-  { id: 'liqs',   label: 'LIQS',   icon: '💀' },
+  { id: 'markets', label: 'MARKETS', icon: '◉' },
+  { id: 'chart',   label: 'CHART',   icon: '▦' },
+  { id: 'book',    label: 'BOOK',    icon: '◫' },
+  { id: 'depth',   label: 'DEPTH',   icon: '◈' },
+  { id: 'trades',  label: 'TRADES',  icon: '⚡' },
+  { id: 'liqs',    label: 'LIQS',    icon: '💀' },
 ];
 
 type TabletBottomTab = 'depth' | 'stats' | 'liqs';
@@ -85,13 +87,13 @@ const MobileTabBtn: React.FC<{
       background:  active ? 'rgba(255,255,255,0.05)' : 'transparent',
       color:       active ? 'rgba(255,255,255,0.92)'  : 'rgba(255,255,255,0.28)',
       borderTop:   active ? '2px solid rgba(242,142,44,1)' : '2px solid transparent',
-      fontSize: '8px', fontWeight: 700,
-      textTransform: 'uppercase', letterSpacing: '0.07em',
+      fontSize: '7px', fontWeight: 700,
+      textTransform: 'uppercase' as const, letterSpacing: '0.07em',
       transition: 'color 120ms, background 120ms',
       WebkitTapHighlightColor: 'transparent',
     }}
   >
-    <span style={{ fontSize: '16px', lineHeight: 1 }}>{tab.icon}</span>
+    <span style={{ fontSize: '15px', lineHeight: 1 }}>{tab.icon}</span>
     <span>{tab.label}</span>
   </button>
 ));
@@ -107,7 +109,7 @@ const ConnectionBanner: React.FC<{
       display: 'flex', alignItems: 'center', gap: '8px',
       padding: '5px 16px', flexShrink: 0,
       background:   isReconn ? 'rgba(242,142,44,0.07)' : 'rgba(239,83,80,0.07)',
-      borderBottom: `1px solid ${isReconn ? 'rgba(242,142,44,0.14)' : 'rgba(239,83,80,0.14)'}`,
+      borderBottom: '1px solid ' + (isReconn ? 'rgba(242,142,44,0.14)' : 'rgba(239,83,80,0.14)'),
       color:        isReconn ? 'rgba(242,142,44,1)'    : 'rgba(239,83,80,1)',
       fontSize: '10px', fontWeight: 700,
     }}>
@@ -143,18 +145,187 @@ const PanelHeader: React.FC<{ title: string; right?: React.ReactNode }> = React.
 );
 PanelHeader.displayName = 'PanelHeader';
 
+// ── Mobile Market List ────────────────────────────────────────────────────────
+
+import type { SymbolInfo } from '@/types/market';
+
+const MobileMarketRow: React.FC<{
+  item:     SymbolInfo;
+  isActive: boolean;
+  onSelect: (sym: string) => void;
+}> = React.memo(({ item, isActive, onSelect }) => {
+  const handleClick = useCallback(() => onSelect(item.symbol), [item.symbol, onSelect]);
+  const changeColor = 'rgba(255,255,255,0.55)'; // static — no live ticker in list
+
+  return (
+    <div
+      onClick={handleClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter') handleClick(); }}
+      style={{
+        display: 'flex', alignItems: 'center', gap: '12px',
+        padding: '10px 16px',
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
+        cursor: 'pointer',
+        background: isActive ? 'rgba(242,142,44,0.06)' : 'transparent',
+        borderLeft: isActive ? '3px solid rgba(242,142,44,1)' : '3px solid transparent',
+        userSelect: 'none',
+        WebkitTapHighlightColor: 'transparent',
+      }}
+      onMouseEnter={(e) => {
+        if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)';
+      }}
+      onMouseLeave={(e) => {
+        if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+      }}
+    >
+      <CoinLogo symbol={item.base} size={32} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{
+            fontSize: '13px', fontWeight: 700,
+            color: isActive ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.92)',
+          }}>
+            {item.base}
+          </span>
+          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.28)' }}>
+            /{item.quote}
+          </span>
+          {isActive && (
+            <span style={{
+              fontSize: '7px', fontWeight: 700, padding: '1px 4px',
+              border: '1px solid rgba(242,142,44,0.4)', borderRadius: '2px',
+              color: 'rgba(242,142,44,1)', letterSpacing: '0.06em',
+            }}>ACTIVE</span>
+          )}
+        </div>
+        {item.volume24h && item.volume24h > 0 && (
+          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', marginTop: '2px' }}>
+            Vol {formatCompact(item.volume24h)}
+          </div>
+        )}
+      </div>
+      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: changeColor }}>—</div>
+      </div>
+    </div>
+  );
+});
+MobileMarketRow.displayName = 'MobileMarketRow';
+
+const MobileMarketList: React.FC<{
+  pairs:        SymbolInfo[];
+  loading:      boolean;
+  activeSymbol: string;
+  onSelect:     (sym: string) => void;
+}> = React.memo(({ pairs, loading, activeSymbol, onSelect }) => {
+  const [query, setQuery] = useState('');
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toUpperCase();
+    if (!q) return pairs;
+    return pairs.filter((p) =>
+      p.base.includes(q) || p.symbol.toUpperCase().includes(q)
+    );
+  }, [pairs, query]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(13,16,23,1)' }}>
+      {/* Search bar */}
+      <div style={{
+        padding: '10px 14px',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        flexShrink: 0,
+        background: 'rgba(16,19,28,1)',
+      }}>
+        <div style={{ position: 'relative' }}>
+          <span style={{
+            position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)',
+            color: 'rgba(255,255,255,0.28)', fontSize: '14px', pointerEvents: 'none',
+          }}>⌕</span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search pairs..."
+            autoComplete="off"
+            style={{
+              width: '100%', padding: '10px 36px 10px 34px',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '6px',
+              color: 'rgba(255,255,255,0.92)',
+              fontFamily: 'inherit', fontSize: '13px',
+              outline: 'none', boxSizing: 'border-box',
+              caretColor: 'rgba(242,142,44,1)',
+            }}
+            onFocus={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(242,142,44,0.45)'; }}
+            onBlur={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(255,255,255,0.08)'; }}
+          />
+          {query && (
+            <button
+              onClick={() => setQuery('')}
+              style={{
+                position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                color: 'rgba(255,255,255,0.30)', fontSize: '16px', padding: '0 4px', lineHeight: 1,
+              }}
+            >×</button>
+          )}
+        </div>
+      </div>
+
+      {/* Column headers */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        padding: '5px 16px',
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
+        background: 'rgba(16,19,28,1)',
+        flexShrink: 0,
+      }}>
+        <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.22)', letterSpacing: '0.08em' }}>
+          SYMBOL
+        </span>
+        <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.22)', letterSpacing: '0.08em' }}>
+          {loading ? 'LOADING...' : filtered.length + ' PAIRS'}
+        </span>
+      </div>
+
+      {/* List */}
+      <div style={{ flex: 1, overflowY: 'auto' }} className="hide-scrollbar">
+        {filtered.map((item) => (
+          <MobileMarketRow
+            key={item.symbol}
+            item={item}
+            isActive={item.symbol === activeSymbol}
+            onSelect={onSelect}
+          />
+        ))}
+        {filtered.length === 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            height: '120px', color: 'rgba(255,255,255,0.25)', fontSize: '11px',
+          }}>
+            No pairs found
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+MobileMarketList.displayName = 'MobileMarketList';
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const Index: React.FC = () => {
-  const { isPro, unlock }       = useProAccess();
+  const { isPro, unlock }      = useProAccess();
   const [showProModal,  setShowProModal]  = useState(false);
   const [activeSymbol,  setActiveSymbol]  = useState('btcusdt');
   const [interval,      setIntervalState] = useState<Interval>('15m');
   const [precision,     setPrecision]     = useState<Precision>('0.01');
-  const [mobileTab,     setMobileTab]     = useState<MobileTab>('chart');
+  const [mobileTab,     setMobileTab]     = useState<MobileTab>('markets');
   const [tabletBottom,  setTabletBottom]  = useState<TabletBottomTab>('depth');
   const [showMarkets,   setShowMarkets]   = useState(false);
-  const [sidebarOpen,   setSidebarOpen]   = useState(true);
   const prevMidRef = useRef<number | null>(null);
 
   const { pairs, loading: pairsLoading, error: pairsError } = useMarketPairs();
@@ -209,15 +380,15 @@ const Index: React.FC = () => {
       const opts = getPrecisionOptions(found.priceDec);
       setPrecision(opts[1] ?? '0.01');
     }
-    // On mobile: close sidebar after select
     setShowMarkets(false);
+    // On mobile: auto-switch to chart view after selecting pair
+    setMobileTab('chart');
   }, [pairs]);
 
   const handleIntervalChange  = useCallback((i: Interval) => setIntervalState(i), []);
   const handlePrecisionChange = useCallback((p: Precision) => setPrecision(p), []);
   const handleOpenMarkets     = useCallback(() => setShowMarkets(true), []);
   const handleCloseMarkets    = useCallback(() => setShowMarkets(false), []);
-  const handleToggleSidebar   = useCallback(() => setSidebarOpen((o) => !o), []);
   const handleOpenProModal    = useCallback(() => setShowProModal(true), []);
   const handleCloseProModal   = useCallback(() => setShowProModal(false), []);
   const handleUnlock          = useCallback((key: string) => { unlock(key); setShowProModal(false); }, [unlock]);
@@ -297,73 +468,58 @@ const Index: React.FC = () => {
       )}
 
       {/* ══════════════════════════ DESKTOP ≥1280px ══════════════════════════ */}
+      {/* No sidebar — chart is always full width */}
       <div className="layout-desktop" style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-        <div style={{ display: 'flex', height: '100%', position: 'relative' }}>
+        <PanelGroup direction="horizontal" autoSaveId="zero-ob-h" style={{ height: '100%' }}>
 
-          {/* Collapsible left sidebar */}
-          <MarketSidebar
-            pairs={pairs}
-            loading={pairsLoading}
-            activeSymbol={activeSymbol}
-            onSelect={handleSymbolChange}
-            isOpen={sidebarOpen}
-            onToggle={handleToggleSidebar}
-          />
-
-          {/* Main content panels */}
-          <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
-            <PanelGroup direction="horizontal" autoSaveId="zero-ob-h" style={{ height: '100%' }}>
-
-              {/* LEFT: chart + depth */}
-              <Panel id="left" defaultSize={55} minSize={35}
-                style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <PanelGroup direction="vertical" autoSaveId="zero-ob-v-left" style={{ height: '100%' }}>
-                  <Panel id="chart" defaultSize={62} minSize={35} style={{ overflow: 'hidden' }}>
-                    <div style={{ ...P }}>{chartPanel}</div>
-                  </Panel>
-                  <ResizeHandle direction="vertical" id="v-left" />
-                  <Panel id="depth" defaultSize={38} minSize={20} style={{ overflow: 'hidden' }}>
-                    {depthPanel}
-                  </Panel>
-                </PanelGroup>
+          {/* LEFT: chart + depth */}
+          <Panel id="left" defaultSize={55} minSize={35}
+            style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <PanelGroup direction="vertical" autoSaveId="zero-ob-v-left" style={{ height: '100%' }}>
+              <Panel id="chart" defaultSize={62} minSize={35} style={{ overflow: 'hidden' }}>
+                <div style={{ ...P }}>{chartPanel}</div>
               </Panel>
-
-              <ResizeHandle direction="horizontal" id="h-book" />
-
-              {/* MIDDLE: Order Book */}
-              <Panel id="book" defaultSize={22} minSize={14} maxSize={35} style={{ overflow: 'hidden' }}>
-                <div style={{ ...P }}>{orderBookPanel(20)}</div>
+              <ResizeHandle direction="vertical" id="v-left" />
+              <Panel id="depth" defaultSize={38} minSize={20} style={{ overflow: 'hidden' }}>
+                {depthPanel}
               </Panel>
-
-              <ResizeHandle direction="horizontal" id="h-right" />
-
-              {/* RIGHT: Trades + Liqs */}
-              <Panel id="right" defaultSize={23} minSize={14} maxSize={35}
-                style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <PanelGroup direction="vertical" autoSaveId="zero-ob-v-right" style={{ height: '100%' }}>
-                  <Panel id="trades" defaultSize={50} minSize={25} style={{ overflow: 'hidden' }}>
-                    <div style={{ ...P }}>{tradesPanel}</div>
-                  </Panel>
-                  <ResizeHandle direction="vertical" id="v-right" />
-                  <Panel id="liqs" defaultSize={50} minSize={25} style={{ overflow: 'hidden' }}>
-                    <div style={{ ...P }}>{liqsPanel}</div>
-                  </Panel>
-                </PanelGroup>
-              </Panel>
-
-              <ResizeHandle direction="horizontal" id="h-mktdata" />
-
-              {/* FAR RIGHT: Market Data collapsible */}
-              <Panel id="mktdata" defaultSize={0} minSize={0} maxSize={22}
-                collapsible collapsedSize={0} style={{ overflow: 'hidden' }}>
-                <div style={{ ...P, borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
-                  {marketDataPanel}
-                </div>
-              </Panel>
-
             </PanelGroup>
-          </div>
-        </div>
+          </Panel>
+
+          <ResizeHandle direction="horizontal" id="h-book" />
+
+          {/* MIDDLE: Order Book */}
+          <Panel id="book" defaultSize={22} minSize={14} maxSize={35} style={{ overflow: 'hidden' }}>
+            <div style={{ ...P }}>{orderBookPanel(20)}</div>
+          </Panel>
+
+          <ResizeHandle direction="horizontal" id="h-right" />
+
+          {/* RIGHT: Trades + Liqs */}
+          <Panel id="right" defaultSize={23} minSize={14} maxSize={35}
+            style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <PanelGroup direction="vertical" autoSaveId="zero-ob-v-right" style={{ height: '100%' }}>
+              <Panel id="trades" defaultSize={50} minSize={25} style={{ overflow: 'hidden' }}>
+                <div style={{ ...P }}>{tradesPanel}</div>
+              </Panel>
+              <ResizeHandle direction="vertical" id="v-right" />
+              <Panel id="liqs" defaultSize={50} minSize={25} style={{ overflow: 'hidden' }}>
+                <div style={{ ...P }}>{liqsPanel}</div>
+              </Panel>
+            </PanelGroup>
+          </Panel>
+
+          <ResizeHandle direction="horizontal" id="h-mktdata" />
+
+          {/* FAR RIGHT: Market Data collapsible */}
+          <Panel id="mktdata" defaultSize={0} minSize={0} maxSize={22}
+            collapsible collapsedSize={0} style={{ overflow: 'hidden' }}>
+            <div style={{ ...P, borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+              {marketDataPanel}
+            </div>
+          </Panel>
+
+        </PanelGroup>
       </div>
 
       {/* ══════════════════════════ TABLET 768–1279px ══════════════════════════ */}
@@ -387,7 +543,6 @@ const Index: React.FC = () => {
           flex: '0 0 42%', display: 'flex', flexDirection: 'column',
           minHeight: 0, borderTop: '1px solid rgba(255,255,255,0.06)',
         }}>
-          {/* Tablet bottom tabs */}
           <div style={{
             display: 'flex',
             background: 'rgba(16,19,28,1)',
@@ -401,7 +556,7 @@ const Index: React.FC = () => {
                 style={{
                   padding: '8px 18px', border: 'none', cursor: 'pointer',
                   fontFamily: 'inherit', fontSize: '9px', fontWeight: 700,
-                  letterSpacing: '0.08em', textTransform: 'uppercase',
+                  letterSpacing: '0.08em', textTransform: 'uppercase' as const,
                   background: 'transparent',
                   color: tabletBottom === t.id ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.28)',
                   borderBottom: tabletBottom === t.id ? '2px solid rgba(242,142,44,1)' : '2px solid transparent',
@@ -413,11 +568,8 @@ const Index: React.FC = () => {
               </button>
             ))}
           </div>
-
           <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-            {tabletBottom === 'depth' && (
-              <div style={{ height: '100%' }}>{depthPanel}</div>
-            )}
+            {tabletBottom === 'depth' && <div style={{ height: '100%' }}>{depthPanel}</div>}
             {tabletBottom === 'stats' && (
               <PanelGroup direction="horizontal" autoSaveId="zero-ob-tablet-stats" style={{ height: '100%' }}>
                 <Panel id="t-stats" defaultSize={55} minSize={35} style={{ overflow: 'hidden' }}>
@@ -442,6 +594,15 @@ const Index: React.FC = () => {
         display: 'flex', flexDirection: 'column',
       }}>
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+          {/* MARKETS — coin list, tap to go to chart */}
+          <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'markets' ? 'flex' : 'none', flexDirection: 'column' }}>
+            <MobileMarketList
+              pairs={pairs}
+              loading={pairsLoading}
+              activeSymbol={activeSymbol}
+              onSelect={handleSymbolChange}
+            />
+          </div>
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'chart'  ? 'flex' : 'none', flexDirection: 'column' }}>{chartPanel}</div>
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'book'   ? 'flex' : 'none', flexDirection: 'column' }}>
             <OrderBook
@@ -477,7 +638,7 @@ const Index: React.FC = () => {
         </div>
       </div>
 
-      {/* Symbol Search Modal — mobile/tablet fallback + when sidebar closed */}
+      {/* Symbol Search Modal — desktop/tablet pair selector */}
       {showMarkets && (
         <SymbolSearch
           pairs={pairs}
