@@ -511,15 +511,15 @@ const Index: React.FC = () => {
       <div className="layout-desktop" style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
         <PanelGroup direction="horizontal" autoSaveId="zero-ob-h" style={{ height: '100%' }}>
 
-          {/* LEFT: chart + depth */}
-          <Panel id="left" defaultSize={55} minSize={35}
+          {/* LEFT: chart (dominant) + depth */}
+          <Panel id="left" defaultSize={52} minSize={36}
             style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <PanelGroup direction="vertical" autoSaveId="zero-ob-v-left" style={{ height: '100%' }}>
-              <Panel id="chart" defaultSize={62} minSize={35} style={{ overflow: 'hidden' }}>
+              <Panel id="chart" defaultSize={68} minSize={40} style={{ overflow: 'hidden' }}>
                 <div style={{ ...P }}>{chartPanel}</div>
               </Panel>
               <ResizeHandle direction="vertical" id="v-left" />
-              <Panel id="depth" defaultSize={38} minSize={20} style={{ overflow: 'hidden' }}>
+              <Panel id="depth" defaultSize={32} minSize={18} style={{ overflow: 'hidden' }}>
                 {depthPanel}
               </Panel>
             </PanelGroup>
@@ -527,26 +527,26 @@ const Index: React.FC = () => {
 
           <ResizeHandle direction="horizontal" id="h-book" />
 
-          {/* MIDDLE: Order Book */}
-          <Panel id="book" defaultSize={22} minSize={14} maxSize={35} style={{ overflow: 'hidden' }}>
-            <div style={{ ...P }}>{orderBookPanel(20)}</div>
+          {/* MIDDLE: Order Book — tighter, more levels visible */}
+          <Panel id="book" defaultSize={20} minSize={14} maxSize={32} style={{ overflow: 'hidden' }}>
+            <div style={{ ...P }}>{orderBookPanel(22)}</div>
           </Panel>
 
           <ResizeHandle direction="horizontal" id="h-right" />
 
-          {/* RIGHT: Trades + Liqs */}
-          <Panel id="right" defaultSize={23} minSize={14} maxSize={35}
+          {/* RIGHT: Trades + CVD + Liqs */}
+          <Panel id="right" defaultSize={18} minSize={13} maxSize={30}
             style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <PanelGroup direction="vertical" autoSaveId="zero-ob-v-right" style={{ height: '100%' }}>
-              <Panel id="trades" defaultSize={38} minSize={20} style={{ overflow: 'hidden' }}>
+              <Panel id="trades" defaultSize={42} minSize={22} style={{ overflow: 'hidden' }}>
                 <div style={{ ...P }}>{tradesPanel}</div>
               </Panel>
               <ResizeHandle direction="vertical" id="v-right-cvd" />
-              <Panel id="cvd" defaultSize={24} minSize={16} style={{ overflow: 'hidden' }}>
+              <Panel id="cvd" defaultSize={22} minSize={14} style={{ overflow: 'hidden' }}>
                 <div style={{ ...P }}>{cvdPanel}</div>
               </Panel>
               <ResizeHandle direction="vertical" id="v-right" />
-              <Panel id="liqs" defaultSize={38} minSize={20} style={{ overflow: 'hidden' }}>
+              <Panel id="liqs" defaultSize={36} minSize={18} style={{ overflow: 'hidden' }}>
                 <div style={{ ...P }}>{liqsPanel}</div>
               </Panel>
             </PanelGroup>
@@ -554,8 +554,8 @@ const Index: React.FC = () => {
 
           <ResizeHandle direction="horizontal" id="h-mktdata" />
 
-          {/* FAR RIGHT: Market Data collapsible */}
-          <Panel id="mktdata" defaultSize={0} minSize={0} maxSize={22}
+          {/* FAR RIGHT: Market Data — visible by default */}
+          <Panel id="mktdata" defaultSize={10} minSize={0} maxSize={24}
             collapsible collapsedSize={0} style={{ overflow: 'hidden' }}>
             <div style={{ ...P, borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
               {marketDataPanel}
@@ -570,65 +570,72 @@ const Index: React.FC = () => {
         flex: 1, display: 'flex', flexDirection: 'column',
         overflow: 'hidden', minHeight: 0,
       }}>
-        <div style={{ flex: '0 0 58%', minHeight: 0, overflow: 'hidden' }}>
-          <PanelGroup direction="horizontal" autoSaveId="zero-ob-tablet-h" style={{ height: '100%' }}>
-            <Panel id="t-chart" defaultSize={64} minSize={40} style={{ overflow: 'hidden' }}>
-              <div style={{ ...P }}>{chartPanel}</div>
-            </Panel>
-            <ResizeHandle direction="horizontal" id="t-h-book" />
-            <Panel id="t-book" defaultSize={36} minSize={24} maxSize={48} style={{ overflow: 'hidden' }}>
-              <div style={{ ...P }}>{orderBookPanel(16)}</div>
-            </Panel>
-          </PanelGroup>
-        </div>
+        {/* Fully resizable top/bottom split */}
+        <PanelGroup direction="vertical" autoSaveId="zero-ob-tablet-v" style={{ height: '100%' }}>
 
-        <div style={{
-          flex: '0 0 42%', display: 'flex', flexDirection: 'column',
-          minHeight: 0, borderTop: '1px solid rgba(255,255,255,0.06)',
-        }}>
-          <div style={{
-            display: 'flex',
-            background: 'rgba(16,19,28,1)',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
-            flexShrink: 0,
-          }}>
-            {TABLET_BOTTOM_TABS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setTabletBottom(t.id)}
-                style={{
-                  padding: '8px 18px', border: 'none', cursor: 'pointer',
-                  fontFamily: 'inherit', fontSize: '9px', fontWeight: 700,
-                  letterSpacing: '0.08em', textTransform: 'uppercase' as const,
-                  background: 'transparent',
-                  color: tabletBottom === t.id ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.28)',
-                  borderBottom: tabletBottom === t.id ? '2px solid rgba(242,142,44,1)' : '2px solid transparent',
-                  transition: 'all 120ms',
-                  WebkitTapHighlightColor: 'transparent',
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-            {tabletBottom === 'depth' && <div style={{ height: '100%' }}>{depthPanel}</div>}
-            {tabletBottom === 'stats' && (
-              <PanelGroup direction="horizontal" autoSaveId="zero-ob-tablet-stats" style={{ height: '100%' }}>
-                <Panel id="t-stats" defaultSize={55} minSize={35} style={{ overflow: 'hidden' }}>
-                  <div style={{ ...P, overflowY: 'auto' }} className="hide-scrollbar">
-                    <MarketData ticker={ticker} symbolInfo={symbolInfo} />
-                  </div>
-                </Panel>
-                <ResizeHandle direction="horizontal" id="t-h-trades" />
-                <Panel id="t-trades" defaultSize={45} minSize={30} style={{ overflow: 'hidden' }}>
-                  <div style={{ ...P }}>{tradesPanel}</div>
-                </Panel>
-              </PanelGroup>
-            )}
-            {tabletBottom === 'liqs' && <div style={{ height: '100%' }}>{liqsPanel}</div>}
-          </div>
-        </div>
+          {/* TOP: chart + order book — resizable horizontal */}
+          <Panel id="t-top" defaultSize={60} minSize={35} style={{ overflow: 'hidden' }}>
+            <PanelGroup direction="horizontal" autoSaveId="zero-ob-tablet-h" style={{ height: '100%' }}>
+              <Panel id="t-chart" defaultSize={65} minSize={40} style={{ overflow: 'hidden' }}>
+                <div style={{ ...P }}>{chartPanel}</div>
+              </Panel>
+              <ResizeHandle direction="horizontal" id="t-h-book" />
+              <Panel id="t-book" defaultSize={35} minSize={22} maxSize={46} style={{ overflow: 'hidden' }}>
+                <div style={{ ...P }}>{orderBookPanel(18)}</div>
+              </Panel>
+            </PanelGroup>
+          </Panel>
+
+          <ResizeHandle direction="vertical" id="t-v-split" />
+
+          {/* BOTTOM: tabs — depth / stats / liqs */}
+          <Panel id="t-bottom" defaultSize={40} minSize={20}
+            style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{
+              display: 'flex',
+              background: 'rgba(16,19,28,1)',
+              borderBottom: '1px solid rgba(255,255,255,0.06)',
+              flexShrink: 0,
+            }}>
+              {TABLET_BOTTOM_TABS.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTabletBottom(t.id)}
+                  style={{
+                    padding: '8px 18px', border: 'none', cursor: 'pointer',
+                    fontFamily: 'inherit', fontSize: '9px', fontWeight: 700,
+                    letterSpacing: '0.08em', textTransform: 'uppercase' as const,
+                    background: 'transparent',
+                    color: tabletBottom === t.id ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.28)',
+                    borderBottom: tabletBottom === t.id ? '2px solid rgba(242,142,44,1)' : '2px solid transparent',
+                    transition: 'all 120ms',
+                    WebkitTapHighlightColor: 'transparent',
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              {tabletBottom === 'depth' && <div style={{ height: '100%' }}>{depthPanel}</div>}
+              {tabletBottom === 'stats' && (
+                <PanelGroup direction="horizontal" autoSaveId="zero-ob-tablet-stats" style={{ height: '100%' }}>
+                  <Panel id="t-stats" defaultSize={55} minSize={35} style={{ overflow: 'hidden' }}>
+                    <div style={{ ...P, overflowY: 'auto' }} className="hide-scrollbar">
+                      <MarketData ticker={ticker} symbolInfo={symbolInfo} />
+                    </div>
+                  </Panel>
+                  <ResizeHandle direction="horizontal" id="t-h-trades" />
+                  <Panel id="t-trades" defaultSize={45} minSize={30} style={{ overflow: 'hidden' }}>
+                    <div style={{ ...P }}>{tradesPanel}</div>
+                  </Panel>
+                </PanelGroup>
+              )}
+              {tabletBottom === 'liqs' && <div style={{ height: '100%' }}>{liqsPanel}</div>}
+            </div>
+          </Panel>
+
+        </PanelGroup>
       </div>
 
       {/* ══════════════════════════ MOBILE <768px ══════════════════════════ */}
