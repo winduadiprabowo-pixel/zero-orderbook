@@ -23,7 +23,7 @@ export function useTrades(symbol: string) {
   }, []);
 
   const { retry } = useBinanceWs({
-    url: `wss://stream.binance.com:9443/ws/${symbol}@trade`,
+    url: `wss://stream.binance.com:9443/ws/${symbol.toUpperCase()}@trade`,
     onMessage: handleMessage,
     onStatusChange: setStatus,
   });
