@@ -1,30 +1,37 @@
 /**
- * useBybitWs.ts — ZERØ ORDER BOOK v42
- * CRITICAL FIX: Shared WS multiplexer — 1 connection per category, fan-out by topic
+ * useBybitWs.ts — ZERØ ORDER BOOK v43
  *
- * ROOT CAUSE v39-v41 BUG:
- *   3 hooks each opened separate WS → CF Worker → Bybit
- *   Bybit blocked 2nd + 3rd connection from same CF Worker IP
- *   Only ticker (first) received data. Orderbook + trades = empty.
+ * ROOT CAUSE v39-v42: CF Worker proxy → Bybit WS = BLOCKED by Bybit.
+ * Bybit blocks datacenter IPs (Cloudflare range).
  *
- * FIX: 1 shared WS per category. All hooks share it.
- *   Messages fan-out to all handlers. Each handler filters by topic prefix.
- *   1 IP slot → all data flows.
+ * FIX v43: Browser connects DIRECTLY to wss://stream.bybit.com
+ * No proxy for WS. CF Worker only used for REST (license, ticker REST).
  *
+ * Architecture:
+ *   Browser WS → wss://stream.bybit.com/v5/public/:category  (direct)
+ *   Browser REST → CF Worker → api.bybit.com                 (proxied)
+ *
+ * Shared multiplexer: 1 WS per category, fan-out by topic.
  * rgba() only ✓ · React.memo ✓ · displayName ✓
  */
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { getReconnectDelay } from '@/lib/formatters';
 import type { ConnectionStatus } from '@/types/market';
 
+// ── Direct Bybit WS URLs (browser → Bybit, bypasses CF Worker) ───────────────
+const BYBIT_WS: Record<string, string> = {
+  spot:    'wss://stream.bybit.com/v5/public/spot',
+  linear:  'wss://stream.bybit.com/v5/public/linear',
+};
+
+// CF Worker still used for REST only
 const PROXY_BASE = (import.meta.env.VITE_WS_PROXY as string | undefined)?.replace(/\/$/, '')
   ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 
 export { PROXY_BASE };
 
 export function resolveBybitWsUrl(category: 'spot' | 'linear' = 'spot'): string {
-  const proxyWs = PROXY_BASE.replace(/^https?:\/\//, 'wss://');
-  return `${proxyWs}/bybit/${category}`;
+  return BYBIT_WS[category] ?? BYBIT_WS.spot;
 }
 
 export function resolveBybitRestUrl(path: string): string {
@@ -82,7 +89,7 @@ function scheduleFlush(c: SharedConn): void {
 }
 
 function doConnect(c: SharedConn, cat: string): void {
-  if (c.ws && c.ws.readyState <= WebSocket.OPEN) return; // already connecting or open
+  if (c.ws && c.ws.readyState <= WebSocket.OPEN) return;
   const url = resolveBybitWsUrl(cat as 'spot' | 'linear');
   broadcastStatus(c, 'reconnecting');
   try {
@@ -116,7 +123,6 @@ function doConnect(c: SharedConn, cat: string): void {
     ws.onclose = () => {
       if (c.pingTimer) { clearInterval(c.pingTimer); c.pingTimer = null; }
       broadcastStatus(c, 'disconnected');
-      // Retry only if there are still active handlers
       if (c.handlers.size > 0) {
         c.retryTimer = setTimeout(() => {
           c.attempt++;
@@ -127,8 +133,7 @@ function doConnect(c: SharedConn, cat: string): void {
     ws.onerror = () => ws.close();
   } catch {
     c.retryTimer = setTimeout(() => {
-      c.attempt++;
-      doConnect(c, cat);
+      c.attempt++; doConnect(c, cat);
     }, getReconnectDelay(c.attempt));
   }
 }
@@ -163,22 +168,19 @@ export function useBybitWs({
   onStatusChange,
   enabled = true,
 }: UseBybitWsOptions): UseBybitWsReturn {
-  const hidRef        = useRef<string>(`h${_hid++}`);
-  const onMsgRef      = useRef(onMessage);
-  const onStatusRef   = useRef(onStatusChange);
-  const topicsKey     = topics.join(',');
+  const hidRef      = useRef<string>(`h${_hid++}`);
+  const onMsgRef    = useRef(onMessage);
+  const onStatusRef = useRef(onStatusChange);
+  const topicsKey   = topics.join(',');
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
-  const pollRef       = useRef<ReturnType<typeof setInterval>>();
+  const pollRef     = useRef<ReturnType<typeof setInterval>>();
 
   onMsgRef.current    = onMessage;
   onStatusRef.current = onStatusChange;
 
-  // Poll shared latencyMs every 500ms — avoid excessive re-renders
   useEffect(() => {
     const c = getConn(category);
-    pollRef.current = setInterval(() => {
-      setLatencyMs(c.latencyMs);
-    }, 500);
+    pollRef.current = setInterval(() => setLatencyMs(c.latencyMs), 500);
     return () => clearInterval(pollRef.current);
   }, [category]);
 
@@ -187,17 +189,12 @@ export function useBybitWs({
     const hid = hidRef.current;
     const c   = getConn(category);
 
-    // Register this hook's handlers
     c.handlers.set(hid, (data) => onMsgRef.current(data));
     c.statusCbs.set(hid, (s) => onStatusRef.current?.(s));
-
-    // Deliver current status immediately
     onStatusRef.current?.(c.status);
 
-    // Add topics to shared set
     for (const t of topics) c.topics.add(t);
 
-    // Ensure WS is up; if already open, subscribe new topics
     ensureConnected(c, category);
     if (c.ws?.readyState === WebSocket.OPEN && topics.length > 0) {
       c.ws.send(JSON.stringify({ op: 'subscribe', args: topics }));
@@ -206,21 +203,9 @@ export function useBybitWs({
     return () => {
       c.handlers.delete(hid);
       c.statusCbs.delete(hid);
-      // Remove topics only if no other handler uses them
-      // (Safe: on symbol change, new hooks register before old ones unregister via React batching)
-      for (const t of topics) {
-        // Check if any remaining handler subscribed to this topic
-        // Simple approach: keep topic in set (WS is cheap) and let reconnect clean up
-        // Actually remove it — Bybit doesn't bill per topic
-        c.topics.delete(t);
-      }
-      // Close WS only when truly no handlers left
+      for (const t of topics) c.topics.delete(t);
       if (c.handlers.size === 0) {
-        if (c.ws) {
-          c.ws.onclose = null;
-          c.ws.close();
-          c.ws = null;
-        }
+        if (c.ws) { c.ws.onclose = null; c.ws.close(); c.ws = null; }
         if (c.pingTimer)  { clearInterval(c.pingTimer);  c.pingTimer  = null; }
         if (c.retryTimer) { clearTimeout(c.retryTimer);  c.retryTimer = null; }
       }
