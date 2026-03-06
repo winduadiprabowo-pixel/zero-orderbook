@@ -14,7 +14,7 @@ export function useTicker(symbol: string) {
 
   const connect = useCallback((attempt = 0) => {
     if (!mountedRef.current) return;
-    // FIX: lowercase symbol untuk Binance WS stream
+    // WS stream: LOWERCASE
     const wsUrl = PROXY_WS + '/ws/' + symbol.toLowerCase() + '@ticker';
     setStatus('reconnecting');
     try {
@@ -24,27 +24,33 @@ export function useTicker(symbol: string) {
       ws.onmessage = (event: MessageEvent) => {
         if (!mountedRef.current) return;
         try {
-          const d = JSON.parse(event.data as string) as { c: string; p: string; P: string; h: string; l: string; v: string; q: string };
+          const d = JSON.parse(event.data as string) as {
+            c: string; p: string; P: string; h: string; l: string; v: string; q: string;
+          };
           if (!d.c) return;
           setTicker({
-            lastPrice: parseFloat(d.c),
-            priceChange: parseFloat(d.p),
+            lastPrice:          parseFloat(d.c),
+            priceChange:        parseFloat(d.p),
             priceChangePercent: parseFloat(d.P),
-            highPrice: parseFloat(d.h),
-            lowPrice: parseFloat(d.l),
-            volume: parseFloat(d.v),
-            quoteVolume: parseFloat(d.q),
+            highPrice:          parseFloat(d.h),
+            lowPrice:           parseFloat(d.l),
+            volume:             parseFloat(d.v),
+            quoteVolume:        parseFloat(d.q),
           });
         } catch { /* ignore */ }
       };
       ws.onclose = () => {
         if (!mountedRef.current) return;
         setStatus('disconnected');
-        timeoutRef.current = setTimeout(() => { if (mountedRef.current) connect(attempt + 1); }, getReconnectDelay(attempt));
+        timeoutRef.current = setTimeout(() => {
+          if (mountedRef.current) connect(attempt + 1);
+        }, getReconnectDelay(attempt));
       };
       ws.onerror = () => ws.close();
     } catch {
-      timeoutRef.current = setTimeout(() => { if (mountedRef.current) connect(attempt + 1); }, getReconnectDelay(attempt));
+      timeoutRef.current = setTimeout(() => {
+        if (mountedRef.current) connect(attempt + 1);
+      }, getReconnectDelay(attempt));
     }
   }, [symbol]);
 
