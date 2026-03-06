@@ -1,15 +1,16 @@
 /**
- * zero-orderbook-proxy — Cloudflare Worker
+ * zero-orderbook-proxy — Cloudflare Worker v5
  * WebSocket proxy: Binance spot streams + fstream liquidations
  * REST proxy: Binance REST API (klines, fapi)
  * License: Gumroad license key verification
+ * All endpoints use binance.me (no geo-block)
  *
  * Routes:
- *   WS   /ws/*              → wss://stream.binance.com:9443/ws/*
- *   WS   /fstream/*         → wss://fstream.binance.com/ws/*
- *   GET  /api/*             → https://api.binance.com/api/*
- *   GET  /fapi/*            → https://fapi.binance.com/fapi/*
- *   GET  /fdata/*           → https://fapi.binance.com/futures/data/*
+ *   WS   /ws/*              → wss://stream.binance.me:9443/ws/*
+ *   WS   /fstream/*         → wss://fstream.binance.me/ws/*
+ *   GET  /api/*             → https://api.binance.me/api/*
+ *   GET  /fapi/*            → https://fapi.binance.me/fapi/*
+ *   GET  /fdata/*           → https://fapi.binance.me/futures/data/*
  *   POST /verify-license    → https://api.gumroad.com/v2/licenses/verify
  */
 
@@ -33,7 +34,6 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-
     // ── License verify ──────────────────────────────────────────────────────
     if (url.pathname === '/verify-license' && request.method === 'POST') {
       return handleVerifyLicense(request);
@@ -56,13 +56,11 @@ async function handleWebSocket(request, url) {
   let targetUrl;
 
   if (url.pathname.startsWith('/ws/')) {
-    // spot streams: /ws/{stream}
-    const stream = url.pathname.slice(4); // strip /ws/
-    targetUrl = `wss://stream.binance.com:9443/ws/${stream}`;
+    const stream = url.pathname.slice(4);
+    targetUrl = `wss://stream.binance.me:9443/ws/${stream}`;
   } else if (url.pathname.startsWith('/fstream/')) {
-    // futures streams: /fstream/{stream}
-    const stream = url.pathname.slice(9); // strip /fstream/
-    targetUrl = `wss://fstream.binance.com/ws/${stream}`;
+    const stream = url.pathname.slice(9);
+    targetUrl = `wss://fstream.binance.me/ws/${stream}`;
   } else {
     return new Response('Unknown WS route', { status: 404 });
   }
@@ -71,7 +69,6 @@ async function handleWebSocket(request, url) {
 
   const upstream = new WebSocket(targetUrl);
 
-  // client → upstream
   server.accept();
   server.addEventListener('message', (event) => {
     if (upstream.readyState === WebSocket.OPEN) {
@@ -85,7 +82,6 @@ async function handleWebSocket(request, url) {
     try { upstream.close(); } catch {}
   });
 
-  // upstream → client
   upstream.addEventListener('message', (event) => {
     try { server.send(event.data); } catch {}
   });
@@ -109,13 +105,13 @@ async function handleRest(request, url) {
   let targetPath;
 
   if (url.pathname.startsWith('/api/')) {
-    targetBase = 'https://api.binance.com';
-    targetPath = url.pathname.slice(4); // /api/... → /api/...
+    targetBase = 'https://api.binance.me';
+    targetPath = url.pathname.slice(4);
   } else if (url.pathname.startsWith('/fapi/')) {
-    targetBase = 'https://fapi.binance.com';
-    targetPath = url.pathname; // keep /fapi/...
+    targetBase = 'https://fapi.binance.me';
+    targetPath = url.pathname;
   } else if (url.pathname.startsWith('/fdata/')) {
-    targetBase = 'https://fapi.binance.com';
+    targetBase = 'https://fapi.binance.me';
     targetPath = '/futures/data/' + url.pathname.slice(7);
   } else {
     return new Response('Not found', { status: 404, headers: CORS_HEADERS });
@@ -174,7 +170,6 @@ async function handleVerifyLicense(request) {
   }
 
   try {
-    // Hit Gumroad license API
     const gumroadRes = await fetch('https://api.gumroad.com/v2/licenses/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
