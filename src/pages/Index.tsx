@@ -28,9 +28,6 @@ import { type ExchangeId, getExchange } from '@/hooks/useExchange';
 import { useMultiExchangeWs }  from '@/hooks/useMultiExchangeWs';
 import { useProAccess }          from '@/hooks/useProAccess';
 
-import { useOrderBook }    from '@/hooks/useOrderBook';
-import { useTicker }       from '@/hooks/useTicker';
-import { useTrades }       from '@/hooks/useTrades';
 import { useLiquidations } from '@/hooks/useLiquidations';
 import { useGlobalStats }  from '@/hooks/useGlobalStats';
 import { useMarketPairs }  from '@/hooks/useMarketPairs';
