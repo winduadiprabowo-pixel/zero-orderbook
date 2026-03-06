@@ -1,8 +1,11 @@
+/**
+ * useTicker.ts — ZERØ ORDER BOOK v36
+ * FIX: pakai PROXY_BASE dari useBinanceWs — no hardcode duplikasi
+ */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getReconnectDelay } from '@/lib/formatters';
+import { PROXY_BASE } from './useBinanceWs';
 import type { TickerData, ConnectionStatus } from '@/types/market';
-
-const PROXY_WS = 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 
 export function useTicker(symbol: string) {
   const [ticker, setTicker] = useState<TickerData | null>(null);
@@ -14,13 +17,17 @@ export function useTicker(symbol: string) {
 
   const connect = useCallback((attempt = 0) => {
     if (!mountedRef.current) return;
-    // WS stream: LOWERCASE
-    const wsUrl = PROXY_WS + '/ws/' + symbol.toLowerCase() + '@ticker';
+    const proxyWs = PROXY_BASE.replace(/^https?:\/\//, 'wss://');
+    const wsUrl   = proxyWs + '/ws/' + symbol.toLowerCase() + '@ticker';
     setStatus('reconnecting');
     try {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
-      ws.onopen = () => { if (!mountedRef.current) return; attemptRef.current = 0; setStatus('connected'); };
+      ws.onopen = () => {
+        if (!mountedRef.current) return;
+        attemptRef.current = 0;
+        setStatus('connected');
+      };
       ws.onmessage = (event: MessageEvent) => {
         if (!mountedRef.current) return;
         try {
