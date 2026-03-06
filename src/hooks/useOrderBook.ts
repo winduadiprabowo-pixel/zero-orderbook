@@ -1,18 +1,15 @@
 /**
  * useOrderBook.ts — ZERØ ORDER BOOK
  * REST snapshot dulu via proxy, lalu WS stream update.
- * Proxy hardcoded — tidak depend on VITE_WS_PROXY env var.
- * FIX v36: WS stream symbol pakai lowercase (btcusdt bukan BTCUSDT)
+ * FIX: WS stream symbol LOWERCASE (btcusdt bukan BTCUSDT)
+ * REST tetap UPPERCASE
  */
-
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { getReconnectDelay } from '@/lib/formatters';
 import type { OrderBookLevel, ConnectionStatus } from '@/types/market';
 
 const PROXY_REST = 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 const PROXY_WS   = 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
-
-interface RawLevel { price: number; size: number; total: number; }
 
 function processLevels(raw: [string, string][], isAsk: boolean, levels: number): OrderBookLevel[] {
   const result = raw
@@ -26,9 +23,9 @@ function processLevels(raw: [string, string][], isAsk: boolean, levels: number):
 }
 
 export function useOrderBook(symbol: string, levels = 20) {
-  const [bids, setBids]     = useState<OrderBookLevel[]>([]);
-  const [asks, setAsks]     = useState<OrderBookLevel[]>([]);
-  const [status, setStatus] = useState<ConnectionStatus>('disconnected');
+  const [bids, setBids]         = useState<OrderBookLevel[]>([]);
+  const [asks, setAsks]         = useState<OrderBookLevel[]>([]);
+  const [status, setStatus]     = useState<ConnectionStatus>('disconnected');
   const [lastUpdate, setLastUpdate] = useState(0);
 
   const wsRef      = useRef<WebSocket | null>(null);
@@ -36,9 +33,9 @@ export function useOrderBook(symbol: string, levels = 20) {
   const attemptRef = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // ── REST snapshot ────────────────────────────────────────────────────────────────────────
   const fetchSnapshot = useCallback(async (signal: AbortSignal) => {
     try {
+      // REST: UPPERCASE
       const res = await fetch(
         PROXY_REST + '/api/v3/depth?symbol=' + symbol.toUpperCase() + '&limit=' + levels,
         { signal }
@@ -47,15 +44,14 @@ export function useOrderBook(symbol: string, levels = 20) {
       const d = await res.json() as { bids: [string,string][]; asks: [string,string][] };
       if (!mountedRef.current) return;
       setBids(processLevels(d.bids, false, levels));
-      setAsks(processLevels(d.asks, true, levels));
+      setAsks(processLevels(d.asks, true,  levels));
       setLastUpdate(Date.now());
-    } catch { /* aborted or error */ }
+    } catch { /* aborted */ }
   }, [symbol, levels]);
 
-  // ── WS stream ──────────────────────────────────────────────────────────────────────────
   const connect = useCallback((attempt = 0) => {
     if (!mountedRef.current) return;
-    // FIX: lowercase symbol untuk Binance WS stream
+    // WS stream: LOWERCASE — Binance requires lowercase for stream names
     const wsUrl = PROXY_WS + '/ws/' + symbol.toLowerCase() + '@depth20@500ms';
     setStatus('reconnecting');
     try {
@@ -72,24 +68,22 @@ export function useOrderBook(symbol: string, levels = 20) {
           const d = JSON.parse(event.data as string) as { bids: [string,string][]; asks: [string,string][] };
           if (!d.bids || !d.asks) return;
           setBids(processLevels(d.bids, false, levels));
-          setAsks(processLevels(d.asks, true, levels));
+          setAsks(processLevels(d.asks, true,  levels));
           setLastUpdate(Date.now());
         } catch { /* ignore */ }
       };
       ws.onclose = () => {
         if (!mountedRef.current) return;
         setStatus('disconnected');
-        const delay = getReconnectDelay(attempt);
         timeoutRef.current = setTimeout(() => {
           if (mountedRef.current) connect(attempt + 1);
-        }, delay);
+        }, getReconnectDelay(attempt));
       };
       ws.onerror = () => ws.close();
     } catch {
-      const delay = getReconnectDelay(attempt);
       timeoutRef.current = setTimeout(() => {
         if (mountedRef.current) connect(attempt + 1);
-      }, delay);
+      }, getReconnectDelay(attempt));
     }
   }, [symbol, levels]);
 
@@ -102,11 +96,7 @@ export function useOrderBook(symbol: string, levels = 20) {
       mountedRef.current = false;
       controller.abort();
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      if (wsRef.current) {
-        wsRef.current.onclose = null;
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
     };
   }, [fetchSnapshot, connect]);
 
