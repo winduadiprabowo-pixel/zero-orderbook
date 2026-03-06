@@ -7,6 +7,7 @@
 
 import React, { useEffect, useRef, useCallback, useState, memo } from 'react';
 import type { Interval, TickerData, SymbolInfo } from '@/types/market';
+import { type ExchangeId, toTvSymbol as exchangeTvSymbol } from '@/hooks/useExchange';
 import { formatCompact } from '@/lib/formatters';
 
 interface TradingViewChartProps {
@@ -15,6 +16,7 @@ interface TradingViewChartProps {
   onIntervalChange: (i: Interval) => void;
   ticker?:          TickerData | null;
   symbolInfo?:      SymbolInfo;
+  exchange?:        ExchangeId;
 }
 
 const TV_INTERVAL_MAP: Record<Interval, string> = {
@@ -24,14 +26,6 @@ const TV_INTERVAL_MAP: Record<Interval, string> = {
 const INTERVAL_SECONDS: Record<Interval, number> = {
   '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400,
 };
-
-function toTvSymbol(symbol: string): string {
-  const up = symbol.toUpperCase();
-  for (const q of ['USDT','USDC','BUSD','BTC','ETH','BNB','FDUSD']) {
-    if (up.endsWith(q)) return 'BINANCE:' + up;
-  }
-  return 'BINANCE:' + up + 'USDT';
-}
 
 // ── Candle Countdown ──────────────────────────────────────────────────────────
 
@@ -162,7 +156,7 @@ StatItem.displayName = 'StatItem';
 // ── Main Chart ────────────────────────────────────────────────────────────────
 
 const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
-  symbol, interval, onIntervalChange, ticker, symbolInfo,
+  symbol, interval, onIntervalChange, ticker, symbolInfo, exchange = 'bybit',
 }) => {
   const containerRef  = useRef<HTMLDivElement>(null);
   const widgetRef     = useRef<HTMLDivElement | null>(null);
@@ -180,7 +174,7 @@ const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
       iframeRef.current = iframe;
       try {
         iframe.contentWindow?.postMessage(
-          { name: 'set-symbol', data: { symbol: toTvSymbol(symbolRef.current), interval: TV_INTERVAL_MAP[interval] } },
+          { name: 'set-symbol', data: { symbol: exchangeTvSymbol(exchange, symbolRef.current), interval: TV_INTERVAL_MAP[interval] } },
           '*'
         );
       } catch { /* cross-origin guard */ }
@@ -194,7 +188,7 @@ const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
     iframeRef.current = null;
     symbolRef.current = symbol;
 
-    const tvSymbol   = toTvSymbol(symbol);
+    const tvSymbol   = exchangeTvSymbol(exchange, symbol);
     const tvInterval = TV_INTERVAL_MAP[intervalRef.current];
 
     const wrapper = document.createElement('div');
