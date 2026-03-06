@@ -353,6 +353,13 @@ MobileMarketList.displayName = 'MobileMarketList';
 const Index: React.FC = () => {
   const { isPro, unlock }      = useProAccess();
   const [showProModal,  setShowProModal]  = useState(false);
+  // v50: visibility throttle — pause non-critical updates when tab hidden
+  const [tabVisible, setTabVisible] = useState(true);
+  useEffect(() => {
+    const onVis = () => setTabVisible(!document.hidden);
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
   // Exchange state — persist across refreshes
   const [exchange, setExchange] = useState<ExchangeId>(() => {
     try { return (localStorage.getItem('zero_exchange') as ExchangeId) ?? 'bybit'; } catch { return 'bybit'; }
@@ -556,16 +563,16 @@ const Index: React.FC = () => {
 
           <ResizeHandle direction="horizontal" id="h-book" />
 
-          {/* MIDDLE: Order Book — tighter, more levels visible */}
+          {/* MIDDLE: Order Book */}
           <Panel id="book" defaultSize={20} minSize={14} maxSize={32} style={{ overflow: 'hidden' }}>
-            <div style={{ ...P }}>{orderBookPanel(22)}</div>
+            <div style={{ ...P }} className="panel-contain">{orderBookPanel(22)}</div>
           </Panel>
 
           <ResizeHandle direction="horizontal" id="h-right" />
 
           {/* RIGHT: Trades + CVD + Liqs */}
           <Panel id="right" defaultSize={18} minSize={13} maxSize={30}
-            style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="panel-contain">
             <PanelGroup direction="vertical" autoSaveId="zero-ob-v-right" style={{ height: '100%' }}>
               <Panel id="trades" defaultSize={42} minSize={22} style={{ overflow: 'hidden' }}>
                 <div style={{ ...P }}>{tradesPanel}</div>
@@ -604,7 +611,7 @@ const Index: React.FC = () => {
 
           {/* TOP: chart + order book — resizable horizontal */}
           <Panel id="t-top" defaultSize={60} minSize={35} style={{ overflow: 'hidden' }}>
-            <PanelGroup direction="horizontal" autoSaveId="zero-ob-tablet-h" style={{ height: '100%' }}>
+            <PanelGroup direction="horizontal" autoSaveId="zero-ob-tablet-h" style={{ height: '100%' }} className="tablet-top-split">
               <Panel id="t-chart" defaultSize={65} minSize={40} style={{ overflow: 'hidden' }}>
                 <div style={{ ...P }}>{chartPanel}</div>
               </Panel>
@@ -706,9 +713,9 @@ const Index: React.FC = () => {
           display: 'flex',
           borderTop: '1px solid rgba(255,255,255,0.06)',
           background: 'rgba(16,19,28,1)',
-          paddingBottom: 'env(safe-area-inset-bottom)',
+          paddingBottom: 'max(env(safe-area-inset-bottom), 6px)',
           flexShrink: 0,
-        }}>
+        }} className="mobile-nav-bar">
           {MOBILE_TABS.map((tab) => (
             <MobileTabBtn
               key={tab.id}
@@ -750,6 +757,24 @@ const Index: React.FC = () => {
           .layout-mobile  { display: flex !important; }
           .desktop-stats  { display: none; }
         }
+
+        /* v48: Tablet portrait — stack vertically */
+        @media (min-width: 768px) and (max-width: 1279px) and (orientation: portrait) {
+          .tablet-top-split {
+            flex-direction: column !important;
+          }
+          .tablet-top-split > [data-panel-id="t-chart"] {
+            min-height: 55% !important;
+          }
+        }
+
+        /* v49: Tablet panel contain for perf */
+        @media (min-width: 768px) {
+          [data-panel-id] { contain: layout style; }
+        }
+
+        /* v50: GPU layers for frequently-updated panels */
+        .panel-contain { contain: layout style paint; }
 
         [data-resize-handle-active] ~ * { user-select: none !important; }
         [data-panel-group] { display: flex !important; }
