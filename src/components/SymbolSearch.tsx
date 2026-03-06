@@ -1,6 +1,7 @@
 /**
- * SymbolSearch.tsx — ZERØ ORDER BOOK v24
- * Full-screen modal symbol picker — 500+ pairs, search, category filter.
+ * SymbolSearch.tsx — ZERØ ORDER BOOK v34
+ * Full-screen modal symbol picker — coin logos + search + category filter.
+ * Desktop: centered modal. Mobile: fullscreen bottom sheet.
  * React.memo ✓ · displayName ✓ · rgba() only ✓ · IBM Plex Mono ✓
  */
 
@@ -8,6 +9,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import type { SymbolInfo } from '@/types/market';
 import { QUOTE_CATEGORIES, type QuoteCategory, useFilteredPairs } from '@/hooks/useMarketPairs';
 import { formatCompact } from '@/lib/formatters';
+import CoinLogo from '@/components/CoinLogo';
 
 interface SymbolSearchProps {
   pairs:         SymbolInfo[];
@@ -18,10 +20,8 @@ interface SymbolSearchProps {
   onClose:       () => void;
 }
 
-const ROW_HEIGHT = 40;
-const VISIBLE_ROWS = 14;
-
-// ─── VirtualList ─────────────────────────────────────────────────────────────
+const ROW_HEIGHT   = 52;
+const VISIBLE_ROWS = 12;
 
 const VirtualList: React.FC<{
   items:        SymbolInfo[];
@@ -33,47 +33,39 @@ const VirtualList: React.FC<{
   const [scrollTop, setScrollTop] = useState(0);
 
   const totalHeight  = items.length * ROW_HEIGHT;
-  const visibleCount = Math.ceil((VISIBLE_ROWS * ROW_HEIGHT) / ROW_HEIGHT) + 2;
-  const startIdx     = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 1);
-  const endIdx       = Math.min(items.length, startIdx + visibleCount + 2);
+  const visibleCount = VISIBLE_ROWS + 4;
+  const startIdx     = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 2);
+  const endIdx       = Math.min(items.length, startIdx + visibleCount);
   const visibleItems = items.slice(startIdx, endIdx);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     setScrollTop((e.currentTarget as HTMLDivElement).scrollTop);
   }, []);
 
-  // Scroll active item into view on open
   useEffect(() => {
     const idx = items.findIndex((p) => p.symbol === activeSymbol);
     if (idx > -1 && containerRef.current) {
-      const top = idx * ROW_HEIGHT;
+      const top  = idx * ROW_HEIGHT;
       const viewH = VISIBLE_ROWS * ROW_HEIGHT;
-      if (top < scrollTop || top + ROW_HEIGHT > scrollTop + viewH) {
-        containerRef.current.scrollTop = Math.max(0, top - viewH / 2);
-      }
+      containerRef.current.scrollTop = Math.max(0, top - viewH / 2);
     }
-  }, [items, activeSymbol]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [items, activeSymbol]); // eslint-disable-line
 
   return (
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      style={{
-        height: `${VISIBLE_ROWS * ROW_HEIGHT}px`,
-        overflowY: 'auto',
-        position: 'relative',
-      }}
+      style={{ height: `${VISIBLE_ROWS * ROW_HEIGHT}px`, overflowY: 'auto', position: 'relative' }}
       className="hide-scrollbar"
     >
       <div style={{ height: `${totalHeight}px`, position: 'relative' }}>
         {visibleItems.map((item, i) => {
           const actualIdx = startIdx + i;
-          const isActive  = item.symbol === activeSymbol;
           return (
             <SymbolRow
               key={item.symbol}
               item={item}
-              isActive={isActive}
+              isActive={item.symbol === activeSymbol}
               top={actualIdx * ROW_HEIGHT}
               onSelect={onSelect}
               onClose={onClose}
@@ -85,8 +77,6 @@ const VirtualList: React.FC<{
   );
 });
 VirtualList.displayName = 'VirtualList';
-
-// ─── SymbolRow ────────────────────────────────────────────────────────────────
 
 const SymbolRow: React.FC<{
   item:     SymbolInfo;
@@ -100,26 +90,29 @@ const SymbolRow: React.FC<{
     onClose();
   }, [item.symbol, onSelect, onClose]);
 
+  const volStr = item.volume24h && item.volume24h > 0 ? formatCompact(item.volume24h) : '-';
+
   return (
     <div
       onClick={handleClick}
       role="button"
       tabIndex={0}
-      aria-label={`Select ${item.label}`}
+      aria-label={'Select ' + item.label}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); }}
       style={{
         position: 'absolute',
-        top: `${top}px`,
+        top: top + 'px',
         left: 0, right: 0,
-        height: `${ROW_HEIGHT}px`,
-        display: 'grid',
-        gridTemplateColumns: '1fr 80px 90px',
+        height: ROW_HEIGHT + 'px',
+        display: 'flex',
         alignItems: 'center',
+        gap: '12px',
         padding: '0 16px',
         cursor: 'pointer',
-        background: isActive ? 'rgba(242,142,44,0.08)' : 'transparent',
+        background: isActive ? 'rgba(242,142,44,0.07)' : 'transparent',
         borderLeft: isActive ? '2px solid rgba(242,142,44,1)' : '2px solid transparent',
         transition: 'background 80ms',
+        userSelect: 'none',
       }}
       onMouseEnter={(e) => {
         if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.04)';
@@ -128,79 +121,74 @@ const SymbolRow: React.FC<{
         if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'transparent';
       }}
     >
-      {/* Label */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-        <span style={{
-          fontSize: '12px', fontWeight: 700,
-          color: isActive ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.92)',
-          whiteSpace: 'nowrap',
-        }}>
-          {item.base}
-        </span>
-        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.28)', fontWeight: 500 }}>
-          /{item.quote}
-        </span>
-        {item.isFutures && (
+      <CoinLogo symbol={item.base} size={28} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
           <span style={{
-            fontSize: '8px', fontWeight: 700, padding: '1px 4px',
-            borderRadius: '2px', letterSpacing: '0.06em',
-            background: 'rgba(38,166,154,0.12)',
-            color: 'rgba(38,166,154,1)',
-          }}>PERP</span>
-        )}
+            fontSize: '13px', fontWeight: 700,
+            color: isActive ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.92)',
+            letterSpacing: '0.02em',
+          }}>
+            {item.base}
+          </span>
+          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.28)', fontWeight: 500 }}>
+            /{item.quote}
+          </span>
+        </div>
+        <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.22)', marginTop: '1px', letterSpacing: '0.04em' }}>
+          Vol {volStr}
+        </div>
       </div>
-
-      {/* Volume */}
-      <span className="mono-num" style={{
-        textAlign: 'right', fontSize: '10px',
-        color: 'rgba(255,255,255,0.35)', fontWeight: 500,
+      <span style={{
+        fontSize: '9px', fontWeight: 600,
+        color: 'rgba(255,255,255,0.28)',
+        fontVariantNumeric: 'tabular-nums',
+        minWidth: '48px', textAlign: 'right',
       }}>
-        {item.volume24h && item.volume24h > 0 ? formatCompact(item.volume24h) : '—'}
+        {volStr}
       </span>
-
-      {/* Active badge */}
-      <div style={{ textAlign: 'right' }}>
-        {isActive && (
-          <span style={{
-            fontSize: '8px', fontWeight: 700,
-            color: 'rgba(242,142,44,1)',
-            letterSpacing: '0.08em',
-          }}>ACTIVE ▶</span>
-        )}
-      </div>
+      {isActive && (
+        <span style={{
+          fontSize: '8px', fontWeight: 700,
+          color: 'rgba(242,142,44,1)',
+          letterSpacing: '0.10em',
+          padding: '2px 6px',
+          border: '1px solid rgba(242,142,44,0.3)',
+          borderRadius: '2px',
+          background: 'rgba(242,142,44,0.08)',
+          whiteSpace: 'nowrap',
+        }}>ACTIVE</span>
+      )}
     </div>
   );
 });
 SymbolRow.displayName = 'SymbolRow';
 
-// ─── CategoryTab ─────────────────────────────────────────────────────────────
-
 const CategoryTab: React.FC<{
-  cat:      QuoteCategory;
-  active:   boolean;
-  onClick:  () => void;
-}> = React.memo(({ cat, active, onClick }) => (
+  label:   string;
+  active:  boolean;
+  onClick: () => void;
+}> = React.memo(({ label, active, onClick }) => (
   <button
     onClick={onClick}
     style={{
-      padding: '4px 10px', border: 'none', cursor: 'pointer',
+      padding: '5px 11px', border: 'none', cursor: 'pointer',
       fontFamily: 'inherit', fontSize: '9px', fontWeight: 700,
-      letterSpacing: '0.08em', textTransform: 'uppercase',
-      borderRadius: '2px',
-      background: active ? 'rgba(242,142,44,0.15)' : 'transparent',
-      color: active ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.28)',
-      border: active ? '1px solid rgba(242,142,44,0.3)' : '1px solid transparent',
+      letterSpacing: '0.08em', textTransform: 'uppercase' as const,
+      borderRadius: '3px',
+      background: active ? 'rgba(242,142,44,0.14)' : 'transparent',
+      color: active ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.30)',
+      border: active ? '1px solid rgba(242,142,44,0.30)' : '1px solid transparent',
       transition: 'all 100ms',
-      whiteSpace: 'nowrap',
+      whiteSpace: 'nowrap' as const,
       WebkitTapHighlightColor: 'transparent',
+      flexShrink: 0,
     }}
   >
-    {cat}
+    {label}
   </button>
 ));
 CategoryTab.displayName = 'CategoryTab';
-
-// ─── Main modal ───────────────────────────────────────────────────────────────
 
 const SymbolSearch: React.FC<SymbolSearchProps> = React.memo(({
   pairs, loading, error, activeSymbol, onSelect, onClose,
@@ -210,11 +198,10 @@ const SymbolSearch: React.FC<SymbolSearchProps> = React.memo(({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => inputRef.current?.focus(), 60);
+    const t = setTimeout(() => inputRef.current?.focus(), 80);
     return () => clearTimeout(t);
   }, []);
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
@@ -239,91 +226,94 @@ const SymbolSearch: React.FC<SymbolSearchProps> = React.memo(({
     if (e.target.value) setCategory('ALL');
   }, []);
 
+  const handleCatClick = useCallback((cat: QuoteCategory) => {
+    setCategory(cat);
+    setQuery('');
+  }, []);
+
   return (
     <>
-      {/* Backdrop */}
       <div
         onClick={onClose}
         style={{
           position: 'fixed', inset: 0, zIndex: 900,
-          background: 'rgba(0,0,0,0.7)',
-          backdropFilter: 'blur(4px)',
+          background: 'rgba(0,0,0,0.75)',
+          backdropFilter: 'blur(6px)',
+          WebkitBackdropFilter: 'blur(6px)',
         }}
       />
-
-      {/* Modal panel */}
       <div style={{
         position: 'fixed',
         top: '50%', left: '50%',
         transform: 'translate(-50%, -50%)',
         zIndex: 901,
-        width: 'min(480px, 96vw)',
-        background: 'rgba(16,19,28,1)',
-        border: '1px solid rgba(255,255,255,0.10)',
-        borderRadius: '6px',
-        boxShadow: '0 24px 80px rgba(0,0,0,0.8)',
+        width: 'min(520px, 96vw)',
+        background: 'rgba(14,17,26,1)',
+        border: '1px solid rgba(255,255,255,0.09)',
+        borderRadius: '8px',
+        boxShadow: '0 32px 100px rgba(0,0,0,0.85)',
         display: 'flex', flexDirection: 'column',
         overflow: 'hidden',
-        maxHeight: '90dvh',
+        maxHeight: '88dvh',
       }}>
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+          padding: '12px 16px',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.55)' }}>
-            MARKET SELECT
-          </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.10em', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase' as const }}>
+              MARKET SELECT
+            </span>
             {loading && (
-              <span style={{ fontSize: '9px', color: 'rgba(242,142,44,1)', fontWeight: 700 }}>
-                LOADING...
-              </span>
+              <span style={{ fontSize: '9px', color: 'rgba(242,142,44,0.8)', fontWeight: 700 }}>LOADING...</span>
             )}
-            <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.28)', fontWeight: 600 }}>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.22)', fontWeight: 600 }}>
               {pairs.length} pairs
             </span>
             <button
               onClick={onClose}
-              aria-label="Close market selector"
+              aria-label="Close"
               style={{
-                background: 'transparent', border: 'none', cursor: 'pointer',
-                color: 'rgba(255,255,255,0.35)', fontSize: '16px',
-                padding: '0 2px', fontFamily: 'inherit', lineHeight: 1,
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '4px', cursor: 'pointer', color: 'rgba(255,255,255,0.45)',
+                fontSize: '14px', width: '24px', height: '24px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: 'inherit', lineHeight: 1,
               }}
             >×</button>
           </div>
         </div>
 
-        {/* Search input */}
-        <div style={{
-          padding: '10px 16px',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          flexShrink: 0,
-        }}>
+        {/* Search */}
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
           <div style={{ position: 'relative' }}>
             <span style={{
-              position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)',
-              color: 'rgba(255,255,255,0.28)', fontSize: '12px', pointerEvents: 'none',
+              position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)',
+              color: 'rgba(255,255,255,0.28)', fontSize: '13px', pointerEvents: 'none',
             }}>⌕</span>
             <input
               ref={inputRef}
               value={query}
               onChange={handleQueryChange}
-              placeholder="Search symbol, e.g. BTC, PEPE, WIF..."
+              placeholder="Search: BTC, PEPE, WIF..."
               aria-label="Search trading pairs"
+              autoComplete="off"
               style={{
-                width: '100%', padding: '8px 12px 8px 32px',
+                width: '100%', padding: '9px 36px 9px 34px',
                 background: 'rgba(255,255,255,0.05)',
                 border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '4px',
+                borderRadius: '5px',
                 color: 'rgba(255,255,255,0.92)',
-                fontFamily: 'inherit', fontSize: '12px',
-                outline: 'none',
-                boxSizing: 'border-box',
+                fontFamily: 'inherit', fontSize: '13px',
+                outline: 'none', boxSizing: 'border-box' as const,
+                caretColor: 'rgba(242,142,44,1)',
               }}
-              onFocus={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(242,142,44,0.4)'; }}
+              onFocus={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(242,142,44,0.45)'; }}
               onBlur={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(255,255,255,0.08)'; }}
             />
             {query && (
@@ -332,7 +322,7 @@ const SymbolSearch: React.FC<SymbolSearchProps> = React.memo(({
                 style={{
                   position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
                   background: 'transparent', border: 'none', cursor: 'pointer',
-                  color: 'rgba(255,255,255,0.28)', fontSize: '14px', padding: '0 4px',
+                  color: 'rgba(255,255,255,0.30)', fontSize: '16px', padding: '0 4px', lineHeight: 1,
                 }}
               >×</button>
             )}
@@ -348,21 +338,11 @@ const SymbolSearch: React.FC<SymbolSearchProps> = React.memo(({
           {QUOTE_CATEGORIES.map((cat) => (
             <CategoryTab
               key={cat}
-              cat={cat === 'ALL' ? `ALL (${countByCategory.ALL})` as QuoteCategory : `${cat} (${countByCategory[cat]})` as QuoteCategory}
+              label={cat + ' ' + (countByCategory[cat] ?? 0)}
               active={category === cat}
-              onClick={() => { setCategory(cat); setQuery(''); }}
+              onClick={() => handleCatClick(cat)}
             />
           ))}
-        </div>
-
-        {/* Column headers */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 80px 90px',
-          padding: '4px 16px', flexShrink: 0,
-        }}>
-          <span className="label-xs">Symbol</span>
-          <span className="label-xs" style={{ textAlign: 'right' }}>Vol 24H</span>
-          <span className="label-xs" style={{ textAlign: 'right' }}>Status</span>
         </div>
 
         {/* List */}
@@ -374,15 +354,14 @@ const SymbolSearch: React.FC<SymbolSearchProps> = React.memo(({
               color: 'rgba(255,255,255,0.28)',
             }}>
               <span style={{ fontSize: '24px' }}>⚠</span>
-              <span style={{ fontSize: '10px' }}>Failed to load pairs — using defaults</span>
+              <span style={{ fontSize: '10px' }}>Failed to load — showing defaults</span>
             </div>
           ) : filtered.length === 0 ? (
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              height: '120px', color: 'rgba(255,255,255,0.28)',
-              fontSize: '11px',
+              height: '120px', color: 'rgba(255,255,255,0.28)', fontSize: '11px',
             }}>
-              No pairs found for &quot;{query}&quot;
+              No pairs found for "{query}"
             </div>
           ) : (
             <VirtualList
@@ -397,14 +376,14 @@ const SymbolSearch: React.FC<SymbolSearchProps> = React.memo(({
         {/* Footer */}
         <div style={{
           padding: '8px 16px',
-          borderTop: '1px solid rgba(255,255,255,0.06)',
+          borderTop: '1px solid rgba(255,255,255,0.05)',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.20)', letterSpacing: '0.06em' }}>
+          <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.18)', letterSpacing: '0.06em' }}>
             {filtered.length} result{filtered.length !== 1 ? 's' : ''}
           </span>
-          <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.20)' }}>
+          <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.18)' }}>
             ESC to close
           </span>
         </div>
