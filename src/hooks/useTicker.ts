@@ -1,81 +1,87 @@
 /**
- * useTicker.ts — ZERØ ORDER BOOK v36
- * FIX: pakai PROXY_BASE dari useBinanceWs — no hardcode duplikasi
+ * useTicker.ts — ZERØ ORDER BOOK v37
+ * MIGRATION: Binance @ticker WS → Bybit tickers WS
+ *
+ * Bybit spot ticker fields (bisa snapshot atau delta — sebagian field mungkin kosong):
+ *   lastPrice     — harga terakhir
+ *   prevPrice24h  — harga 24 jam lalu (untuk hitung priceChange absolut)
+ *   price24hPcnt  — persentase perubahan 24h, format desimal (e.g. "0.0123" = +1.23%)
+ *   highPrice24h  — high 24h
+ *   lowPrice24h   — low 24h
+ *   volume24h     — volume base 24h
+ *   turnover24h   — volume quote 24h
+ *
+ * Delta: hanya field yang berubah yang dikirim → merge dengan state sebelumnya.
  */
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { getReconnectDelay } from '@/lib/formatters';
-import { PROXY_BASE } from './useBinanceWs';
+import { useState, useCallback } from 'react';
 import type { TickerData, ConnectionStatus } from '@/types/market';
+import { useBybitWs } from './useBybitWs';
+
+interface BybitTickerMsg {
+  topic?: string;
+  data?:  {
+    lastPrice?:    string;
+    prevPrice24h?: string;
+    price24hPcnt?: string;
+    highPrice24h?: string;
+    lowPrice24h?:  string;
+    volume24h?:    string;
+    turnover24h?:  string;
+  };
+}
+
+const EMPTY_TICKER: TickerData = {
+  lastPrice:          0,
+  priceChange:        0,
+  priceChangePercent: 0,
+  highPrice:          0,
+  lowPrice:           0,
+  volume:             0,
+  quoteVolume:        0,
+};
 
 export function useTicker(symbol: string) {
   const [ticker, setTicker] = useState<TickerData | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
-  const wsRef      = useRef<WebSocket | null>(null);
-  const mountedRef = useRef(true);
-  const attemptRef = useRef(0);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const connect = useCallback((attempt = 0) => {
-    if (!mountedRef.current) return;
-    const proxyWs = PROXY_BASE.replace(/^https?:\/\//, 'wss://');
-    const wsUrl   = proxyWs + '/ws/' + symbol.toLowerCase() + '@ticker';
-    setStatus('reconnecting');
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-      ws.onopen = () => {
-        if (!mountedRef.current) return;
-        attemptRef.current = 0;
-        setStatus('connected');
-      };
-      ws.onmessage = (event: MessageEvent) => {
-        if (!mountedRef.current) return;
-        try {
-          const d = JSON.parse(event.data as string) as {
-            c: string; p: string; P: string; h: string; l: string; v: string; q: string;
-          };
-          if (!d.c) return;
-          setTicker({
-            lastPrice:          parseFloat(d.c),
-            priceChange:        parseFloat(d.p),
-            priceChangePercent: parseFloat(d.P),
-            highPrice:          parseFloat(d.h),
-            lowPrice:           parseFloat(d.l),
-            volume:             parseFloat(d.v),
-            quoteVolume:        parseFloat(d.q),
-          });
-        } catch { /* ignore */ }
-      };
-      ws.onclose = () => {
-        if (!mountedRef.current) return;
-        setStatus('disconnected');
-        timeoutRef.current = setTimeout(() => {
-          if (mountedRef.current) connect(attempt + 1);
-        }, getReconnectDelay(attempt));
-      };
-      ws.onerror = () => ws.close();
-    } catch {
-      timeoutRef.current = setTimeout(() => {
-        if (mountedRef.current) connect(attempt + 1);
-      }, getReconnectDelay(attempt));
-    }
-  }, [symbol]);
+  const onMessage = useCallback((raw: unknown) => {
+    const msg = raw as BybitTickerMsg;
+    if (!msg.topic?.startsWith('tickers.') || !msg.data) return;
+    const d = msg.data;
 
-  useEffect(() => {
-    mountedRef.current = true;
-    connect(0);
-    return () => {
-      mountedRef.current = false;
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
-    };
-  }, [connect]);
+    setTicker((prev) => {
+      const base = prev ?? EMPTY_TICKER;
 
-  const retry = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
-    connect(0);
-  }, [connect]);
+      const lastPrice  = d.lastPrice    ? parseFloat(d.lastPrice)    : base.lastPrice;
+      const prev24h    = d.prevPrice24h ? parseFloat(d.prevPrice24h) : 0;
+
+      // priceChange = lastPrice - 24h ago price (hanya update kalau prevPrice24h ada)
+      const priceChange = prev24h > 0
+        ? lastPrice - prev24h
+        : base.priceChange;
+
+      // price24hPcnt dari Bybit sudah desimal → kalikan 100 untuk %
+      const priceChangePercent = d.price24hPcnt
+        ? parseFloat(d.price24hPcnt) * 100
+        : base.priceChangePercent;
+
+      return {
+        lastPrice,
+        priceChange,
+        priceChangePercent,
+        highPrice:   d.highPrice24h ? parseFloat(d.highPrice24h) : base.highPrice,
+        lowPrice:    d.lowPrice24h  ? parseFloat(d.lowPrice24h)  : base.lowPrice,
+        volume:      d.volume24h    ? parseFloat(d.volume24h)    : base.volume,
+        quoteVolume: d.turnover24h  ? parseFloat(d.turnover24h)  : base.quoteVolume,
+      };
+    });
+  }, []);
+
+  const { retry } = useBybitWs({
+    topics:         [`tickers.${symbol.toUpperCase()}`],
+    onMessage,
+    onStatusChange: setStatus,
+  });
 
   return { ticker, status, retry };
 }
