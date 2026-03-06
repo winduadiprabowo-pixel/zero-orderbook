@@ -16,7 +16,8 @@ export function useTrades(symbol: string) {
 
   const connect = useCallback((attempt = 0) => {
     if (!mountedRef.current) return;
-    const wsUrl = PROXY_WS + '/ws/' + symbol.toUpperCase() + '@trade';
+    // FIX: lowercase symbol untuk Binance WS stream
+    const wsUrl = PROXY_WS + '/ws/' + symbol.toLowerCase() + '@trade';
     setStatus('reconnecting');
     try {
       const ws = new WebSocket(wsUrl);
