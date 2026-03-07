@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useThermalMonitor } from '@/hooks/useThermalMonitor';
 import { Panel, PanelGroup } from 'react-resizable-panels';
 
 import Header        from '@/components/Header';
@@ -353,6 +354,9 @@ MobileMarketList.displayName = 'MobileMarketList';
 const Index: React.FC = () => {
   const { isPro, unlock }      = useProAccess();
   const [showProModal,  setShowProModal]  = useState(false);
+  // v54: thermal monitor — reduce levels when FPS drops
+  const [throttleFactor, setThrottleFactor] = useState<1.0 | 0.8 | 0.5>(1.0);
+  useThermalMonitor(setThrottleFactor);
   // v50: visibility throttle — pause non-critical updates when tab hidden
   const [tabVisible, setTabVisible] = useState(true);
   useEffect(() => {
@@ -394,7 +398,12 @@ const Index: React.FC = () => {
   }, [pairs, activeSymbol]);
 
   // Multi-exchange unified data
-  const exData = useMultiExchangeWs(exchange, activeSymbol);
+  // v54: thermal-aware levels — HP overheat → reduce depth automatically
+  const thermalLevels = useMemo(
+    () => Math.floor(50 * throttleFactor),
+    [throttleFactor],
+  );
+  const exData = useMultiExchangeWs(exchange, activeSymbol, thermalLevels);
   const { bids, asks, trades, cvdPoints, ticker } = exData;
   const obStatus     = exData.status;
   const tickerStatus = exData.status;
