@@ -47,18 +47,23 @@ export function getExchange(id: ExchangeId): ExchangeMeta {
   return EXCHANGES.find((e) => e.id === id) ?? EXCHANGES[0];
 }
 
-// ── WS URLs (direct — no proxy, browser → exchange) ──────────────────────────
+// v55: CF Worker proxy URL — all WS routed through SG proxy
+const PROXY_WS = import.meta.env.VITE_PROXY_URL
+  ? import.meta.env.VITE_PROXY_URL.replace('https://', 'wss://')
+  : 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 
-export function getWsUrl(exchange: ExchangeId, symbol: string): string {
-  const sym = symbol.toUpperCase();
+// ── WS URLs — all via CF Worker proxy (bypass ISP block ID) ──────────────────
+
+export function getWsUrl(exchange: ExchangeId, _symbol: string): string {
   switch (exchange) {
     case 'bybit':
-      return 'wss://stream.bybit.com/v5/public/spot';
+      // Worker: /bybit/linear → wss://stream.bybit.com/v5/public/linear
+      return `${PROXY_WS}/bybit/linear`;
     case 'binance':
-      return `wss://stream.binance.com:9443/stream?streams=${sym.toLowerCase()}@depth20@100ms/${sym.toLowerCase()}@trade/${sym.toLowerCase()}@ticker`;
-    case 'coinbase': {
+      // Not used directly — useMultiExchangeWs builds combined URL
+      return `${PROXY_WS}/ws/stream`;
+    case 'coinbase':
       return 'wss://advanced-trade-ws.coinbase.com';
-    }
   }
 }
 
