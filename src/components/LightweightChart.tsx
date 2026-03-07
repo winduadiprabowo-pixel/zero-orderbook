@@ -385,14 +385,14 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
 
     // Candlestick series
     const candleSer = chart.addCandlestickSeries({
-      upColor:            'rgba(38,166,154,1)',
-      downColor:          'rgba(239,83,80,1)',
-      borderUpColor:      'rgba(38,166,154,1)',
-      borderDownColor:    'rgba(239,83,80,1)',
-      wickUpColor:        'rgba(38,166,154,0.75)',
-      wickDownColor:      'rgba(239,83,80,0.75)',
+      upColor:            'rgba(0,255,157,1)',
+      downColor:          'rgba(255,59,92,1)',
+      borderUpColor:      'rgba(0,255,157,1)',
+      borderDownColor:    'rgba(255,59,92,1)',
+      wickUpColor:        'rgba(0,255,157,0.65)',
+      wickDownColor:      'rgba(255,59,92,0.65)',
       priceLineVisible:   true,
-      priceLineColor:     'rgba(255,255,255,0.20)',
+      priceLineColor:     'rgba(255,255,255,0.15)',
       priceLineWidth:     1,
       lastValueVisible:   true,
     });
@@ -550,14 +550,14 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
             time:  (k.t / 1000) as Time,
             value: parseFloat(k.v),
             color: parseFloat(k.c) >= parseFloat(k.o)
-              ? 'rgba(38,166,154,0.40)'
-              : 'rgba(239,83,80,0.40)',
+              ? 'rgba(0,255,157,0.35)'
+              : 'rgba(255,59,92,0.35)',
           };
           candleSerRef.current?.update(candle);
           // v57: update priceLineColor dynamically — green if up, red if down
           const lineColor = parseFloat(k.c) >= parseFloat(k.o)
-            ? 'rgba(52,211,193,1)'
-            : 'rgba(255,95,88,1)';
+            ? 'rgba(0,255,157,1)'
+            : 'rgba(255,59,92,1)';
           candleSerRef.current?.applyOptions({ priceLineColor: lineColor });
           volSerRef.current?.update(vol);
           // keep candlesRef in sync for visible range calculation
