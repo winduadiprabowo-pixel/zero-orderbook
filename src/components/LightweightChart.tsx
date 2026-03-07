@@ -423,46 +423,36 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
       }
     });
 
-    // v55d: On every zoom/scroll — compute exact high/low of VISIBLE candles
-    // and set price range precisely. This is what makes candles fill the chart.
-    chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
-      requestAnimationFrame(() => {
-        if (!mountedRef.current || !logicalRange) return;
-        const data = candlesRef.current;
-        if (!data.length) return;
+    // v59c: click/tap on price axis → reset Y zoom (autoScale candles)
+    // Works on desktop (click) + mobile (tap on right price scale area)
+    const resetPriceScale = () => {
+      if (!mountedRef.current) return;
+      candleSer.priceScale().applyOptions({ autoScale: true });
+      chart.applyOptions({ rightPriceScale: { autoScale: true } });
+    };
 
-        const from = Math.max(0, Math.floor(logicalRange.from));
-        const to   = Math.min(data.length - 1, Math.ceil(logicalRange.to));
-        if (from > to) return;
+    // Native DOM: click on price axis area (right side of chart container)
+    const handleAxisClick = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement;
+      // Lightweight Charts renders price axis in a canvas — check if click is in right price scale area
+      const rect = el.getBoundingClientRect();
+      const clientX = 'touches' in e ? e.touches[0]?.clientX ?? 0 : (e as MouseEvent).clientX;
+      const rightScaleWidth = 70; // approx price axis width
+      if (clientX >= rect.right - rightScaleWidth) {
+        resetPriceScale();
+      }
+    };
 
-        let high = -Infinity;
-        let low  =  Infinity;
-        for (let i = from; i <= to; i++) {
-          if (data[i].high > high) high = data[i].high;
-          if (data[i].low  < low)  low  = data[i].low;
-        }
-        if (high === -Infinity || low === Infinity) return;
+    // Double-click/tap anywhere on chart = fit all + reset Y
+    const handleDblClick = () => {
+      if (!mountedRef.current) return;
+      chart.timeScale().fitContent();
+      resetPriceScale();
+    };
 
-        const padding = (high - low) * 0.06; // 6% padding top+bottom
-        candleSer.priceScale().applyOptions({
-          autoScale: false, // disable autoScale so our manual range takes effect
-        });
-        chart.applyOptions({
-          rightPriceScale: {
-            // Set visible min/max to exactly visible candles range + small padding
-            autoScale:    false,
-          },
-        });
-        // Use setVisiblePriceRange via priceScale if available (v4 API)
-        try {
-          (candleSer.priceScale() as unknown as {
-            setVisiblePriceRange?: (r: { minValue: number; maxValue: number }) => void
-          }).setVisiblePriceRange?.({ minValue: low - padding, maxValue: high + padding });
-        } catch { /* not available in this build */ }
-        // Fallback: just re-enable autoScale (still better than nothing)
-        candleSer.priceScale().applyOptions({ autoScale: true });
-      });
-    });
+    el.addEventListener('click', handleAxisClick);
+    el.addEventListener('touchend', handleAxisClick as EventListener);
+    el.addEventListener('dblclick', handleDblClick);
 
     // Auto-resize
     const ro = new ResizeObserver(() => {
@@ -478,6 +468,9 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
     setChartReady(true);
 
     return () => {
+      el.removeEventListener('click', handleAxisClick);
+      el.removeEventListener('touchend', handleAxisClick as EventListener);
+      el.removeEventListener('dblclick', handleDblClick);
       ro.disconnect();
       chart.remove();
       chartRef.current     = null;
