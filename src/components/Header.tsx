@@ -5,7 +5,7 @@
  * rgba() only ✓ · IBM Plex Mono ✓ · React.memo ✓ · displayName ✓
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import type { ConnectionStatus, SymbolInfo, TickerData, GlobalStats } from '@/types/market';
 import { formatCompact, fearGreedColor } from '@/lib/formatters';
 import CoinLogo from '@/components/CoinLogo';
@@ -33,9 +33,9 @@ const Header: React.FC<HeaderProps> = React.memo(({
   exchange, onExchangeChange,
 }) => {
   const statusColor = useMemo(() => {
-    if (status === 'connected')    return 'rgba(38,166,154,1)';
-    if (status === 'reconnecting') return 'rgba(242,142,44,1)';
-    return 'rgba(239,83,80,1)';
+    if (status === 'connected')    return 'rgba(0,255,157,1)';
+    if (status === 'reconnecting') return 'rgba(242,162,33,1)';
+    return 'rgba(255,59,92,1)';
   }, [status]);
 
   const statusLabel = useMemo(() => {
@@ -51,10 +51,28 @@ const Header: React.FC<HeaderProps> = React.memo(({
 
   const changeColor = useMemo(() =>
     !ticker ? 'rgba(255,255,255,0.55)'
-    : ticker.priceChangePercent >= 0 ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)',
+    : ticker.priceChangePercent >= 0 ? 'rgba(0,255,157,1)' : 'rgba(255,59,92,1)',
   [ticker]);
 
   const fgColor = fearGreedColor(globalStats.fearGreedValue);
+
+  // v58: price flash animation on ticker change
+  const priceElRef  = useRef<HTMLSpanElement>(null);
+  const prevPriceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!ticker) return;
+    const prev = prevPriceRef.current;
+    prevPriceRef.current = ticker.lastPrice;
+    if (prev === null) return;
+    const el = priceElRef.current;
+    if (!el) return;
+    const cls = ticker.lastPrice >= prev ? 'price-flash-up' : 'price-flash-down';
+    el.classList.remove('price-flash-up', 'price-flash-down');
+    void el.offsetWidth;
+    el.classList.add(cls);
+    const t = setTimeout(() => el?.classList.remove(cls), 400);
+    return () => clearTimeout(t);
+  }, [ticker?.lastPrice]);
 
   const activeLabel = useMemo(() => {
     const up = activeSymbol.toUpperCase();
@@ -79,8 +97,8 @@ const Header: React.FC<HeaderProps> = React.memo(({
 
   return (
     <header style={{
-      background: 'rgba(13,16,23,1)',
-      borderBottom: '1px solid rgba(255,255,255,0.07)',
+      background: 'rgba(5,7,15,1)',
+      borderBottom: '1px solid rgba(255,255,255,0.06)',
       flexShrink: 0,
       zIndex: 30,
     }}>
@@ -164,7 +182,7 @@ const Header: React.FC<HeaderProps> = React.memo(({
             minWidth: 0,
             overflow: 'hidden',
           }}>
-            <span className="mono-num" style={{
+            <span ref={priceElRef} className="mono-num" style={{
               fontSize: '15px', fontWeight: 800, color: changeColor,
               letterSpacing: '-0.01em', whiteSpace: 'nowrap',
               overflow: 'hidden', textOverflow: 'ellipsis',
@@ -188,8 +206,8 @@ const Header: React.FC<HeaderProps> = React.memo(({
             display: 'flex', gap: '16px', alignItems: 'center',
             overflow: 'hidden', flexShrink: 1,
           }} className="desktop-stats hide-scrollbar">
-            <StatChip label="H"   value={ticker.highPrice.toLocaleString('en-US', { maximumFractionDigits: 4 })} color="rgba(38,166,154,1)" />
-            <StatChip label="L"   value={ticker.lowPrice.toLocaleString('en-US',  { maximumFractionDigits: 4 })} color="rgba(239,83,80,1)" />
+            <StatChip label="H"   value={ticker.highPrice.toLocaleString('en-US', { maximumFractionDigits: 4 })} color="rgba(0,255,157,1)" />
+            <StatChip label="L"   value={ticker.lowPrice.toLocaleString('en-US',  { maximumFractionDigits: 4 })} color="rgba(255,59,92,1)" />
             <StatChip label="VOL" value={formatCompact(ticker.quoteVolume)} color="rgba(255,255,255,0.80)" />
             {!globalStats.loading && (
               <>
