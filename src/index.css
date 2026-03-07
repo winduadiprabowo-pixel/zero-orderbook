@@ -27,38 +27,43 @@
     --ring:               rgba(38,166,154,1);
     --radius:             0.2rem;
 
-    /* ── ZERØ design tokens ── */
-    --app-bg:             rgba(10,13,20,1);
-    --panel-bg:           rgba(14,17,26,1);
-    --panel-bg-alt:       rgba(17,21,32,1);
-    --card-bg:            rgba(20,24,36,1);
+    /* ── ZERØ design tokens — v58 premium ── */
+    --app-bg:             rgba(5,7,15,1);
+    --panel-bg:           rgba(9,11,18,1);
+    --panel-bg-alt:       rgba(11,14,22,1);
+    --card-bg:            rgba(14,17,27,1);
     --hover-bg:           rgba(255,255,255,0.04);
     --active-bg:          rgba(255,255,255,0.07);
 
-    --bid-color:          rgba(38,166,154,1);
-    --ask-color:          rgba(239,83,80,1);
-    --bid-fill:           rgba(38,166,154,0.10);
-    --ask-fill:           rgba(239,83,80,0.10);
+    /* v58: electric bid/ask — Grok recommendation */
+    --bid-color:          rgba(0,255,157,1);
+    --ask-color:          rgba(255,59,92,1);
+    --bid-fill:           rgba(0,255,157,0.07);
+    --ask-fill:           rgba(255,59,92,0.07);
+    --bid-glow:           0 0 12px rgba(0,255,157,0.18);
+    --ask-glow:           0 0 12px rgba(255,59,92,0.18);
 
-    --gold:               rgba(242,142,44,1);
-    --gold-fill:          rgba(242,142,44,0.10);
-    --gold-glow:          0 0 16px rgba(242,142,44,0.35);
+    --gold:               rgba(242,162,33,1);
+    --gold-fill:          rgba(242,162,33,0.10);
+    --gold-glow:          0 0 16px rgba(242,162,33,0.35);
 
-    --text-primary:       rgba(255,255,255,0.94);
-    --text-secondary:     rgba(255,255,255,0.58);
-    --text-muted:         rgba(255,255,255,0.30);
-    --text-disabled:      rgba(255,255,255,0.14);
+    --text-primary:       rgba(255,255,255,0.92);
+    --text-secondary:     rgba(255,255,255,0.55);
+    --text-muted:         rgba(255,255,255,0.28);
+    --text-disabled:      rgba(255,255,255,0.12);
 
-    --border-subtle:      rgba(255,255,255,0.055);
-    --border-mid:         rgba(255,255,255,0.09);
-    --border-strong:      rgba(255,255,255,0.15);
+    --border-subtle:      rgba(255,255,255,0.05);
+    --border-mid:         rgba(255,255,255,0.08);
+    --border-strong:      rgba(255,255,255,0.13);
 
-    --panel-glow:         inset 0 1px 0 rgba(255,255,255,0.03);
-    --panel-shadow:       0 8px 32px rgba(0,0,0,0.55);
+    /* v58: panel glow — premium card feel */
+    --panel-glow:         inset 0 1px 0 rgba(255,255,255,0.04), inset 0 0 0 1px rgba(255,255,255,0.03);
+    --panel-shadow:       0 8px 40px rgba(0,0,0,0.70);
+    --panel-border:       1px solid rgba(255,255,255,0.055);
 
-    --positive:           rgba(38,166,154,1);
-    --negative:           rgba(239,83,80,1);
-    --warning:            rgba(242,142,44,1);
+    --positive:           rgba(0,255,157,1);
+    --negative:           rgba(255,59,92,1);
+    --warning:            rgba(242,162,33,1);
     --neutral:            rgba(255,255,255,0.45);
 
     --liq-long:           rgba(239,83,80,1);
@@ -140,17 +145,29 @@
   }
 }
 
-/* ── Flash animations ── */
+/* ── Flash animations — v58 electric colors ── */
 @keyframes flash-bid {
-  0%   { background-color: rgba(38,166,154,0.40); }
+  0%   { background-color: rgba(0,255,157,0.28); }
   100% { background-color: transparent; }
 }
 @keyframes flash-ask {
-  0%   { background-color: rgba(239,83,80,0.40); }
+  0%   { background-color: rgba(255,59,92,0.28); }
   100% { background-color: transparent; }
 }
-.flash-bid { animation: flash-bid 250ms ease-out forwards; }
-.flash-ask { animation: flash-ask 250ms ease-out forwards; }
+.flash-bid { animation: flash-bid 280ms ease-out forwards; }
+.flash-ask { animation: flash-ask 280ms ease-out forwards; }
+
+/* ── v58: Price update flash in header ── */
+@keyframes price-up {
+  0%   { color: rgba(0,255,157,1); text-shadow: 0 0 12px rgba(0,255,157,0.5); }
+  100% { color: inherit; text-shadow: none; }
+}
+@keyframes price-down {
+  0%   { color: rgba(255,59,92,1); text-shadow: 0 0 12px rgba(255,59,92,0.5); }
+  100% { color: inherit; text-shadow: none; }
+}
+.price-flash-up   { animation: price-up   400ms ease-out forwards; }
+.price-flash-down { animation: price-down 400ms ease-out forwards; }
 
 /* ── Shimmer ── */
 @keyframes shimmer {
