@@ -350,7 +350,10 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
       rightPriceScale: {
         borderColor:    'rgba(255,255,255,0.06)',
         textColor:      'rgba(255,255,255,0.35)',
-        scaleMargins:   { top: 0.08, bottom: 0.28 },
+        // v55c: tighter margins — harga mengisi penuh area chart
+        // bottom 0.18 = ruang untuk volume histogram di bawah
+        scaleMargins:   { top: 0.04, bottom: 0.18 },
+        autoScale:      true,
       },
       timeScale: {
         borderColor:      'rgba(255,255,255,0.06)',
@@ -384,7 +387,7 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
       priceScaleId:     'vol',
     });
     chart.priceScale('vol').applyOptions({
-      scaleMargins: { top: 0.80, bottom: 0 },
+      scaleMargins: { top: 0.85, bottom: 0 },
     });
 
     // Crosshair legend
