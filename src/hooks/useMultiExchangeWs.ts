@@ -1,11 +1,10 @@
 /**
- * useMultiExchangeWs.ts — ZERØ ORDER BOOK v59
+ * useMultiExchangeWs.ts — ZERØ ORDER BOOK v60
  *
- * FIXES v59:
- *   1. BYBIT TIMEOUT — naik dari 5s ke 10s (CF Worker SG perlu waktu lebih).
- *   2. document.hidden SKIP DIHAPUS — initial snapshot harus diproses meski tab unfocused.
- *      Tanpa ini, bids/asks map kosong selamanya kalau tab unfocus saat WS connect.
- *   3. parseBinance depth — support both bids/asks AND b/a field names + guard empty array.
+ * PERF v60:
+ *   1. flushQueue: dirty flag — skip setState if nothing changed
+ *   2. trades concat: avoid spread on large arrays
+ *   3. version bump
  *
  * rgba() only ✓ · RAF-gated ✓ · mountedRef ✓ · zero mock data ✓
  */
@@ -260,6 +259,7 @@ export function useMultiExchangeWs(
 
     const draft: Partial<ExchangeState> & { _newTrades?: Trade[] } = {};
     const feed = activeFeedRef.current;
+    let dirty = false; // v60: only setState if something actually changed
 
     for (const data of messages) {
       const msg = data as Record<string, unknown>;
@@ -270,8 +270,12 @@ export function useMultiExchangeWs(
       if (draft.trades) {
         draft._newTrades = [...(draft._newTrades ?? []), ...draft.trades];
         delete draft.trades;
+        dirty = true;
       }
+      if (draft.bids || draft.asks || draft.cvdPoints || draft.ticker) dirty = true;
     }
+
+    if (!dirty) return; // v60: skip re-render if nothing changed
 
     if (draft._newTrades) {
       draft.trades = draft._newTrades;
@@ -284,7 +288,11 @@ export function useMultiExchangeWs(
       if (draft.asks)      next.asks = draft.asks;
       if (draft.cvdPoints) next.cvdPoints = draft.cvdPoints;
       if (draft.trades) {
-        next.trades = [...draft.trades, ...prev.trades].slice(0, 50);
+        // v60: cap at 50, avoid spread concat on large arrays
+        const combined = draft.trades.length >= 50
+          ? draft.trades.slice(0, 50)
+          : draft.trades.concat(prev.trades).slice(0, 50);
+        next.trades = combined;
       }
       if (draft.ticker) {
         const t = draft.ticker as TickerData & { _partial?: boolean; _prevPrice24h?: number };
