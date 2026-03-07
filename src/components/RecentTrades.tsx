@@ -70,9 +70,9 @@ const TradeRow: React.FC<{ trade: Trade; maxSize: number }> = React.memo(({ trad
   }, [trade.time]);
 
   const isSell   = trade.isBuyerMaker;
-  const color    = isSell ? 'rgba(239,83,80,1)' : 'rgba(38,166,154,1)';
+  const color    = isSell ? 'rgba(255,59,92,1)' : 'rgba(0,255,157,1)';
   const barPct   = Math.min((trade.size / maxSize) * 100, 100);
-  const barColor = isSell ? 'rgba(239,83,80,0.10)' : 'rgba(38,166,154,0.10)';
+  const barColor = isSell ? 'rgba(255,59,92,0.08)' : 'rgba(0,255,157,0.08)';
 
   const sizeStr = trade.size >= 1000
     ? (trade.size / 1000).toFixed(2) + 'K'
