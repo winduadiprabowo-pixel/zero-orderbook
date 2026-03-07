@@ -1,6 +1,8 @@
 /**
- * RecentTrades.tsx — ZERØ ORDER BOOK v35
- * HD overhaul — sharper, denser, crisper.
+ * RecentTrades.tsx — ZERØ ORDER BOOK v60
+ * PERF: Remove slide-in-top per-row (animation tiap trade = GPU overload)
+ * PERF: Remove useMemo for timeStr (overhead > savings for static value)
+ * PERF: Math.max via loop not spread (no stack overflow on large arrays)
  * rgba() only ✓ · React.memo ✓ · displayName ✓
  */
 
@@ -9,17 +11,22 @@ import type { Trade } from '@/types/market';
 
 interface RecentTradesProps { trades: Trade[] }
 
-const MAX_DISPLAY = 80;
+const MAX_DISPLAY = 60; // v60: reduced from 80 — less DOM nodes
 
 const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ trades }) => {
   const display = useMemo(() => trades.slice(0, MAX_DISPLAY), [trades]);
+
+  // v60: loop instead of Math.max(...spread) — no stack overflow risk
   const maxSize = useMemo(() => {
-    if (!display.length) return 1;
-    return Math.max(...display.map((t) => t.size), 1);
+    let max = 1;
+    for (let i = 0; i < display.length; i++) {
+      if (display[i].size > max) max = display[i].size;
+    }
+    return max;
   }, [display]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(14,17,26,1)' }}>
+    <div className="trades-gpu" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(14,17,26,1)' }}>
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -44,7 +51,7 @@ const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ trades }) => {
         <span className="label-xs" style={{ textAlign: 'right' }}>SIZE</span>
       </div>
 
-      {/* List */}
+      {/* List — no animation class per row */}
       <div style={{ flex: 1, overflowY: 'auto' }} className="hide-scrollbar">
         {display.map((t) => (
           <TradeRow key={t.id} trade={t} maxSize={maxSize} />
@@ -60,29 +67,29 @@ const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ trades }) => {
 });
 RecentTrades.displayName = 'RecentTrades';
 
-const TradeRow: React.FC<{ trade: Trade; maxSize: number }> = React.memo(({ trade, maxSize }) => {
-  const timeStr = useMemo(() => {
-    const d  = new Date(trade.time);
-    const hh = d.getHours().toString().padStart(2, '0');
-    const mm = d.getMinutes().toString().padStart(2, '0');
-    const ss = d.getSeconds().toString().padStart(2, '0');
-    return hh + ':' + mm + ':' + ss;
-  }, [trade.time]);
+// v60: timeStr computed inline — no useMemo overhead for static value
+function formatTime(ms: number): string {
+  const d  = new Date(ms);
+  const hh = d.getHours().toString().padStart(2, '0');
+  const mm = d.getMinutes().toString().padStart(2, '0');
+  const ss = d.getSeconds().toString().padStart(2, '0');
+  return hh + ':' + mm + ':' + ss;
+}
 
+function formatTradeSize(size: number): string {
+  if (size >= 1000) return (size / 1000).toFixed(2) + 'K';
+  if (size >= 1)    return size.toFixed(3);
+  return size.toFixed(4);
+}
+
+const TradeRow: React.FC<{ trade: Trade; maxSize: number }> = React.memo(({ trade, maxSize }) => {
   const isSell   = trade.isBuyerMaker;
   const color    = isSell ? 'rgba(255,59,92,1)' : 'rgba(0,255,157,1)';
   const barPct   = Math.min((trade.size / maxSize) * 100, 100);
-  const barColor = isSell ? 'rgba(255,59,92,0.08)' : 'rgba(0,255,157,0.08)';
-
-  const sizeStr = trade.size >= 1000
-    ? (trade.size / 1000).toFixed(2) + 'K'
-    : trade.size >= 1
-    ? trade.size.toFixed(3)
-    : trade.size.toFixed(4);
+  const barColor = isSell ? 'rgba(255,59,92,0.07)' : 'rgba(0,255,157,0.07)';
 
   return (
     <div
-      className="slide-in-top"
       style={{
         display: 'grid', gridTemplateColumns: '50px 1fr 1fr',
         padding: '2px 10px', gap: '4px',
@@ -96,17 +103,15 @@ const TradeRow: React.FC<{ trade: Trade; maxSize: number }> = React.memo(({ trad
       <div style={{
         position: 'absolute', top: 0, bottom: 0, right: 0,
         width: barPct + '%', background: barColor, pointerEvents: 'none',
-        transition: 'width 180ms ease-out',
       }} />
-
       <span style={{ color: 'rgba(255,255,255,0.18)', fontSize: '9.5px', fontVariantNumeric: 'tabular-nums', position: 'relative', zIndex: 1 }}>
-        {timeStr}
+        {formatTime(trade.time)}
       </span>
       <span className="mono-num" style={{ textAlign: 'right', color, position: 'relative', zIndex: 1 }}>
         {trade.price.toLocaleString('en-US', { maximumFractionDigits: 4 })}
       </span>
       <span className="mono-num" style={{ textAlign: 'right', color: 'rgba(255,255,255,0.48)', position: 'relative', zIndex: 1 }}>
-        {sizeStr}
+        {formatTradeSize(trade.size)}
       </span>
     </div>
   );
