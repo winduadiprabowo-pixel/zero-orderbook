@@ -110,21 +110,20 @@ const Header: React.FC<HeaderProps> = React.memo(({
         minWidth: 0,
       }}>
 
-        {/* ── Logo ── */}
+        {/* ── Logo v61: dark, no icon, text only ── */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: '5px',
+          display: 'flex', alignItems: 'center', gap: '6px',
           marginRight: '12px', flexShrink: 0,
         }}>
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <rect x="2" y="2" width="18" height="18" rx="3" fill="rgba(242,142,44,0.12)" stroke="rgba(242,142,44,0.5)" strokeWidth="1.2"/>
-            <text x="11" y="15.5" textAnchor="middle" fontSize="11" fontWeight="900" fill="rgba(242,142,44,1)" fontFamily="'IBM Plex Mono',monospace">Ø</text>
-          </svg>
-          <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '0.03em', color: 'rgba(242,142,44,1)' }}>
+          <span style={{
+            fontSize: '14px', fontWeight: 800, letterSpacing: '0.06em',
+            color: 'rgba(255,255,255,0.72)',
+          }}>
             ZERØ
           </span>
           <span className="header-subtitle" style={{
-            fontSize: '8px', color: 'rgba(255,255,255,0.22)', fontWeight: 500,
-            letterSpacing: '0.04em', marginLeft: '1px',
+            fontSize: '8px', color: 'rgba(255,255,255,0.18)', fontWeight: 500,
+            letterSpacing: '0.08em',
           }}>
             ORDER BOOK
           </span>
