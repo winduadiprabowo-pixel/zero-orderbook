@@ -1,5 +1,5 @@
 /**
- * Index.tsx — ZERØ ORDER BOOK v39
+ * Index.tsx — ZERØ ORDER BOOK v59
  * DESKTOP: Chart full width (no sidebar) | Pair selector in header
  * MOBILE:  Market list first → tap pair → chart view (Bybit-style)
  * TABLET:  Chart top + tabs bottom
@@ -48,14 +48,72 @@ import {
 
 type MobileTab = 'markets' | 'chart' | 'book' | 'depth' | 'trades' | 'cvd' | 'liqs';
 
-const MOBILE_TABS: { id: MobileTab; label: string; icon: string }[] = [
-  { id: 'markets', label: 'MARKETS', icon: '◉' },
-  { id: 'chart',   label: 'CHART',   icon: '▦' },
-  { id: 'book',    label: 'BOOK',    icon: '◫' },
-  { id: 'depth',   label: 'DEPTH',   icon: '◈' },
-  { id: 'trades',  label: 'TRADES',  icon: '⚡' },
-  { id: 'cvd',     label: 'CVD',     icon: '△' },
-  { id: 'liqs',    label: 'LIQS',    icon: '💀' },
+// SVG icons — no emoji, no unicode garbage
+const TAB_ICONS: Record<MobileTab, React.ReactNode> = {
+  markets: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <rect x="2" y="4" width="7" height="5" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="11" y="4" width="7" height="5" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="2" y="11" width="7" height="5" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+      <rect x="11" y="11" width="7" height="5" rx="1" stroke="currentColor" strokeWidth="1.4"/>
+    </svg>
+  ),
+  chart: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <polyline points="2,15 6,9 10,12 14,6 18,3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+      <line x1="2" y1="17" x2="18" y2="17" stroke="currentColor" strokeWidth="1.2" opacity="0.4"/>
+    </svg>
+  ),
+  book: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <rect x="10" y="3" width="8" height="1.8" rx="0.9" fill="rgba(0,255,157,0.85)"/>
+      <rect x="10" y="6.5" width="6" height="1.8" rx="0.9" fill="rgba(0,255,157,0.55)"/>
+      <rect x="10" y="10" width="7" height="1.8" rx="0.9" fill="rgba(255,59,92,0.55)"/>
+      <rect x="10" y="13.5" width="5" height="1.8" rx="0.9" fill="rgba(255,59,92,0.85)"/>
+      <line x1="9" y1="2" x2="9" y2="18" stroke="currentColor" strokeWidth="0.8" opacity="0.2"/>
+      <rect x="2" y="3" width="5" height="1.8" rx="0.9" fill="rgba(255,59,92,0.85)"/>
+      <rect x="2" y="6.5" width="4" height="1.8" rx="0.9" fill="rgba(255,59,92,0.55)"/>
+      <rect x="2" y="10" width="5" height="1.8" rx="0.9" fill="rgba(0,255,157,0.55)"/>
+      <rect x="2" y="13.5" width="3" height="1.8" rx="0.9" fill="rgba(0,255,157,0.85)"/>
+    </svg>
+  ),
+  depth: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M2 16 L5 12 L8 14 L10 10 L12 14 L15 12 L18 16 Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+      <line x1="2" y1="16" x2="18" y2="16" stroke="currentColor" strokeWidth="1" opacity="0.3"/>
+    </svg>
+  ),
+  trades: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <line x1="2" y1="5" x2="13" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      <circle cx="16" cy="5" r="2.2" fill="rgba(0,255,157,1)"/>
+      <line x1="2" y1="10" x2="11" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      <circle cx="14" cy="10" r="2.2" fill="rgba(255,59,92,1)"/>
+      <line x1="2" y1="15" x2="14" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      <circle cx="17" cy="15" r="2.2" fill="rgba(0,255,157,1)"/>
+    </svg>
+  ),
+  cvd: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M2 13 C4 13 5 7 8 9 C11 11 12 5 15 6 C17 7 17 9 18 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none"/>
+      <line x1="2" y1="16" x2="18" y2="16" stroke="currentColor" strokeWidth="1" opacity="0.3"/>
+    </svg>
+  ),
+  liqs: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M10 2 L13 7.5 L18.5 8.5 L14.5 12.5 L15.5 18 L10 15.2 L4.5 18 L5.5 12.5 L1.5 8.5 L7 7.5 Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="none"/>
+    </svg>
+  ),
+};
+
+const MOBILE_TABS: { id: MobileTab; label: string }[] = [
+  { id: 'markets', label: 'Markets' },
+  { id: 'chart',   label: 'Chart'   },
+  { id: 'book',    label: 'Book'    },
+  { id: 'depth',   label: 'Depth'   },
+  { id: 'trades',  label: 'Trades'  },
+  { id: 'cvd',     label: 'CVD'     },
+  { id: 'liqs',    label: 'Liqs'    },
 ];
 
 type TabletBottomTab = 'depth' | 'stats' | 'liqs';
@@ -86,20 +144,24 @@ const MobileTabBtn: React.FC<{
     style={{
       flex: 1, display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
-      gap: '3px', padding: '7px 2px 6px',
+      gap: '4px', padding: '8px 2px 6px',
       border: 'none', cursor: 'pointer',
-      fontFamily: 'inherit', minHeight: '54px',
-      background:  active ? 'rgba(255,255,255,0.05)' : 'transparent',
-      color:       active ? 'rgba(255,255,255,0.92)'  : 'rgba(255,255,255,0.28)',
-      borderTop:   active ? '2px solid rgba(242,142,44,1)' : '2px solid transparent',
-      fontSize: '7px', fontWeight: 700,
-      textTransform: 'uppercase' as const, letterSpacing: '0.07em',
-      transition: 'color 120ms, background 120ms',
+      fontFamily: 'inherit', minHeight: '56px',
+      background: 'transparent',
+      color: active ? 'rgba(242,162,33,1)' : 'rgba(255,255,255,0.32)',
+      borderTop: active ? '2px solid rgba(242,162,33,1)' : '2px solid transparent',
+      transition: 'color 100ms',
       WebkitTapHighlightColor: 'transparent',
+      position: 'relative',
     }}
   >
-    <span style={{ fontSize: '15px', lineHeight: 1 }}>{tab.icon}</span>
-    <span>{tab.label}</span>
+    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20 }}>
+      {TAB_ICONS[tab.id]}
+    </span>
+    <span style={{
+      fontSize: '9px', fontWeight: 600, letterSpacing: '0.04em',
+      lineHeight: 1,
+    }}>{tab.label}</span>
   </button>
 ));
 MobileTabBtn.displayName = 'MobileTabBtn';
@@ -167,8 +229,8 @@ const MobileMarketRow: React.FC<{
   const changePct = snap?.changePct ?? 0;
   const vol       = snap?.volume24h ?? item.volume24h ?? 0;
   const isUp      = changePct >= 0;
-  const changeColor = isUp ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
-  const changeBg    = isUp ? 'rgba(38,166,154,0.13)' : 'rgba(239,83,80,0.13)';
+  // Bybit-style: solid pill badge
+  const pillColor = isUp ? 'rgba(0,200,120,1)' : 'rgba(239,83,80,1)';
 
   return (
     <div
@@ -177,63 +239,62 @@ const MobileMarketRow: React.FC<{
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') handleClick(); }}
       style={{
-        display: 'flex', alignItems: 'center', gap: '11px',
-        padding: '9px 14px',
-        borderBottom: '1px solid rgba(255,255,255,0.035)',
+        display: 'flex', alignItems: 'center', gap: '12px',
+        padding: '11px 16px',
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
         cursor: 'pointer',
-        background: isActive ? 'rgba(242,142,44,0.05)' : 'transparent',
-        borderLeft: isActive ? '2px solid rgba(242,142,44,1)' : '2px solid transparent',
+        background: isActive ? 'rgba(242,162,33,0.06)' : 'transparent',
         userSelect: 'none',
+        WebkitUserSelect: 'none',
         WebkitTapHighlightColor: 'transparent',
-        transition: 'background 80ms',
-      }}
-      onMouseEnter={(e) => {
-        if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.025)';
-      }}
-      onMouseLeave={(e) => {
-        if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+        touchAction: 'manipulation',
       }}
     >
-      <CoinLogo symbol={item.base} size={34} />
+      <CoinLogo symbol={item.base} size={36} />
 
       {/* Symbol + Volume */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '3px' }}>
           <span style={{
-            fontSize: '13px', fontWeight: 700, letterSpacing: '-0.01em',
-            color: isActive ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.92)',
+            fontSize: '14px', fontWeight: 700,
+            color: isActive ? 'rgba(242,162,33,1)' : 'rgba(255,255,255,0.92)',
+            letterSpacing: '-0.01em',
           }}>
             {item.base}
           </span>
-          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', fontWeight: 600 }}>
+          <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.28)', fontWeight: 500 }}>
             /{item.quote}
           </span>
         </div>
-        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.22)', marginTop: '2px', fontWeight: 500 }}>
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)', marginTop: '2px' }}>
           Vol {vol > 0 ? formatCompact(vol) : '—'}
         </div>
       </div>
 
-      {/* Price + Change pill */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', flexShrink: 0 }}>
+      {/* Price + Pill badge — Bybit style */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px', flexShrink: 0 }}>
         <span style={{
-          fontSize: '13px', fontWeight: 700, letterSpacing: '-0.01em',
-          color: 'rgba(255,255,255,0.92)',
+          fontSize: '14px', fontWeight: 700,
+          color: snap ? (isUp ? 'rgba(0,220,130,1)' : 'rgba(239,83,80,1)') : 'rgba(255,255,255,0.55)',
           fontVariantNumeric: 'tabular-nums',
+          letterSpacing: '-0.01em',
+          pointerEvents: 'none',
         }}>
           {price > 0 ? formatPrice(price) : '—'}
         </span>
         {snap ? (
           <span style={{
-            fontSize: '10px', fontWeight: 700,
-            padding: '2px 6px', borderRadius: '3px',
-            background: changeBg, color: changeColor,
-            letterSpacing: '0.02em',
+            fontSize: '11px', fontWeight: 700,
+            padding: '3px 8px', borderRadius: '20px',
+            background: pillColor,
+            color: 'rgba(255,255,255,1)',
+            letterSpacing: '0.01em',
+            pointerEvents: 'none',
           }}>
             {isUp ? '+' : ''}{changePct.toFixed(2)}%
           </span>
         ) : (
-          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.18)', fontWeight: 600 }}>—</span>
+          <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.18)' }}>—</span>
         )}
       </div>
     </div>
@@ -259,44 +320,49 @@ const MobileMarketList: React.FC<{
   }, [pairs, query]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(13,16,23,1)' }}>
-      {/* Search bar */}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(10,11,20,1)' }}>
+      {/* Search bar — Bybit style */}
       <div style={{
-        padding: '10px 14px',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        padding: '12px 14px 10px',
         flexShrink: 0,
-        background: 'rgba(16,19,28,1)',
+        background: 'rgba(10,11,20,1)',
       }}>
         <div style={{ position: 'relative' }}>
-          <span style={{
-            position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)',
-            color: 'rgba(255,255,255,0.28)', fontSize: '14px', pointerEvents: 'none',
-          }}>⌕</span>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{
+            position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)',
+            pointerEvents: 'none', opacity: 0.35,
+          }}>
+            <circle cx="7" cy="7" r="4.5" stroke="white" strokeWidth="1.4"/>
+            <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="white" strokeWidth="1.4" strokeLinecap="round"/>
+          </svg>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search pairs..."
             autoComplete="off"
             style={{
-              width: '100%', padding: '10px 36px 10px 34px',
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '6px',
-              color: 'rgba(255,255,255,0.92)',
-              fontFamily: 'inherit', fontSize: '13px',
-              outline: 'none', boxSizing: 'border-box',
-              caretColor: 'rgba(242,142,44,1)',
+              width: '100%', padding: '11px 36px 11px 36px',
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: '8px',
+              color: 'rgba(255,255,255,0.9)',
+              fontFamily: 'inherit', fontSize: '14px',
+              outline: 'none', boxSizing: 'border-box' as const,
+              caretColor: 'rgba(242,162,33,1)',
             }}
-            onFocus={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(242,142,44,0.45)'; }}
-            onBlur={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(255,255,255,0.08)'; }}
+            onFocus={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(242,162,33,0.5)'; (e.target as HTMLInputElement).style.background = 'rgba(255,255,255,0.08)'; }}
+            onBlur={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(255,255,255,0.07)'; (e.target as HTMLInputElement).style.background = 'rgba(255,255,255,0.06)'; }}
           />
           {query && (
             <button
               onClick={() => setQuery('')}
               style={{
-                position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
-                background: 'transparent', border: 'none', cursor: 'pointer',
-                color: 'rgba(255,255,255,0.30)', fontSize: '16px', padding: '0 4px', lineHeight: 1,
+                position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+                background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer',
+                color: 'rgba(255,255,255,0.6)', fontSize: '14px',
+                width: '20px', height: '20px', borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                lineHeight: 1, padding: 0,
               }}
             >×</button>
           )}
@@ -305,24 +371,25 @@ const MobileMarketList: React.FC<{
 
       {/* Column headers */}
       <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        padding: '5px 16px',
-        borderBottom: '1px solid rgba(255,255,255,0.04)',
-        background: 'rgba(16,19,28,1)',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '4px 16px 6px',
         flexShrink: 0,
       }}>
-        <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.22)', letterSpacing: '0.08em' }}>
-          SYMBOL / VOLUME
+        <span style={{ fontSize: '11px', fontWeight: 500, color: 'rgba(255,255,255,0.28)' }}>
+          Symbol / Vol
         </span>
-        <div style={{ display: 'flex', gap: '20px' }}>
-          <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.22)', letterSpacing: '0.08em' }}>
-            PRICE
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <span style={{ fontSize: '11px', fontWeight: 500, color: 'rgba(255,255,255,0.28)', marginRight: '16px' }}>
+            Price
           </span>
-          <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.22)', letterSpacing: '0.08em', minWidth: '44px', textAlign: 'right' }}>
-            {loading ? 'LOADING...' : filtered.length + ' PAIRS'}
+          <span style={{ fontSize: '11px', fontWeight: 500, color: 'rgba(255,255,255,0.28)', minWidth: '52px', textAlign: 'right' }}>
+            {loading ? '...' : `${filtered.length} pairs`}
           </span>
         </div>
       </div>
+
+      {/* Divider */}
+      <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)', flexShrink: 0 }} />
 
       {/* List */}
       <div style={{ flex: 1, overflowY: 'auto' }} className="hide-scrollbar">
@@ -338,7 +405,7 @@ const MobileMarketList: React.FC<{
         {filtered.length === 0 && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            height: '120px', color: 'rgba(255,255,255,0.25)', fontSize: '11px',
+            height: '120px', color: 'rgba(255,255,255,0.22)', fontSize: '13px',
           }}>
             No pairs found
           </div>
@@ -720,9 +787,9 @@ const Index: React.FC = () => {
 
         <div style={{
           display: 'flex',
-          borderTop: '1px solid rgba(255,255,255,0.06)',
-          background: 'rgba(16,19,28,1)',
-          paddingBottom: 'max(env(safe-area-inset-bottom), 6px)',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          background: 'rgba(10,11,20,1)',
+          paddingBottom: 'max(env(safe-area-inset-bottom), 4px)',
           flexShrink: 0,
         }} className="mobile-nav-bar">
           {MOBILE_TABS.map((tab) => (

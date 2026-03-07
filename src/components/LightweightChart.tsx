@@ -373,7 +373,7 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
         mouseWheel:       true,
         pressedMouseMove: true,
         horzTouchDrag:    true,
-        vertTouchDrag:    false, // false = vertical scroll page, not chart
+        vertTouchDrag:    true,  // v59: true = drag vertikal di chart zoom price axis
       },
       handleScale: {
         axisPressedMouseMove: { time: true, price: true },
