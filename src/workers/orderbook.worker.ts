@@ -1,15 +1,37 @@
 /**
- * orderbook.worker.ts — ZERØ ORDER BOOK v44
- * Web Worker: semua heavy compute off main thread
- *   - PriceMap sort + cumulative
- *   - Whale detection
- *   - CVD accumulation
- * Main thread cuma render. Zero jank.
+ * orderbook.worker.ts — ZERØ ORDER BOOK v52
+ *
+ * FIX v52:
+ *   CVD history: shift() O(n) → ring buffer O(1).
+ *   CVD_WINDOW configurable via 'configure' message.
+ *
+ * Main thread cuma render. Zero jank. rgba() only ✓
  */
 
 type PriceMap = Map<string, number>;
 
 const WHALE_NOTIONAL = 100_000;
+let CVD_WINDOW = 200;
+
+// ── Ring buffer — O(1) push ───────────────────────────────────────────────────
+class RingBuffer<T> {
+  private buf: T[];
+  private idx  = 0;
+  private full = false;
+  constructor(private cap: number) { this.buf = new Array<T>(cap); }
+  push(item: T): void {
+    this.buf[this.idx] = item;
+    this.idx = (this.idx + 1) % this.cap;
+    if (this.idx === 0) this.full = true;
+  }
+  toArray(): T[] {
+    return this.full
+      ? [...this.buf.slice(this.idx), ...this.buf.slice(0, this.idx)]
+      : this.buf.slice(0, this.idx);
+  }
+  clear(): void { this.buf = new Array<T>(this.cap); this.idx = 0; this.full = false; }
+  resize(newCap: number): void { this.cap = newCap; this.clear(); }
+}
 
 function applyDelta(map: PriceMap, updates: [string, string][]): void {
   for (const [price, size] of updates) {
@@ -19,7 +41,7 @@ function applyDelta(map: PriceMap, updates: [string, string][]): void {
   }
 }
 
-function mapToLevels(map: PriceMap, isAsk: boolean, levels: number, mid: number) {
+function mapToLevels(map: PriceMap, isAsk: boolean, levels: number) {
   const entries: [number, number][] = [];
   map.forEach((size, priceStr) => entries.push([parseFloat(priceStr), size]));
   entries.sort((a, b) => isAsk ? a[0] - b[0] : b[0] - a[0]);
@@ -36,31 +58,33 @@ function mapToLevels(map: PriceMap, isAsk: boolean, levels: number, mid: number)
 let bidsMap: PriceMap = new Map();
 let asksMap: PriceMap = new Map();
 let midPrice = 0;
-let currentSymbol = '';
 
-// CVD state
+// CVD — ring buffer
 let cvdRunning = 0;
-const cvdHistory: { time: number; cvd: number }[] = [];
-const CVD_WINDOW = 200;
+const cvdRing = new RingBuffer<{ time: number; cvd: number }>(CVD_WINDOW);
 
 self.onmessage = (e: MessageEvent) => {
   const msg = e.data as {
-    type: 'orderbook' | 'trades' | 'reset';
-    symbol?: string;
-    topic?: string;
+    type:     'orderbook' | 'trades' | 'reset' | 'configure';
+    symbol?:  string;
     msgType?: 'snapshot' | 'delta';
-    data?: { b: [string,string][]; a: [string,string][] };
-    trades?: Array<{ i: string; T: number; p: string; v: string; S: 'Buy'|'Sell' }>;
-    levels?: number;
+    data?:    { b: [string,string][]; a: [string,string][] };
+    trades?:  Array<{ i: string; T: number; p: string; v: string; S: 'Buy'|'Sell' }>;
+    levels?:  number;
+    cvdWindow?: number;
   };
 
+  if (msg.type === 'configure') {
+    if (msg.cvdWindow) { CVD_WINDOW = msg.cvdWindow; cvdRing.resize(CVD_WINDOW); }
+    return;
+  }
+
   if (msg.type === 'reset') {
-    bidsMap = new Map();
-    asksMap = new Map();
-    midPrice = 0;
+    bidsMap    = new Map();
+    asksMap    = new Map();
+    midPrice   = 0;
     cvdRunning = 0;
-    cvdHistory.length = 0;
-    currentSymbol = msg.symbol ?? '';
+    cvdRing.clear();
     return;
   }
 
@@ -73,10 +97,10 @@ self.onmessage = (e: MessageEvent) => {
       applyDelta(bidsMap, msg.data.b);
       applyDelta(asksMap, msg.data.a);
     }
-    const bids = mapToLevels(bidsMap, false, levels, midPrice);
-    const asks = mapToLevels(asksMap, true,  levels, midPrice);
+    const bids = mapToLevels(bidsMap, false, levels);
+    const asks = mapToLevels(asksMap, true,  levels);
     if (bids.length && asks.length) midPrice = (bids[0].price + asks[0].price) / 2;
-    self.postMessage({ type: 'orderbook', bids, asks, ts: Date.now() });
+    self.postMessage({ type: 'orderbook', bids, asks, mid: midPrice, ts: Date.now() });
     return;
   }
 
@@ -90,9 +114,8 @@ self.onmessage = (e: MessageEvent) => {
     }));
     for (const t of trades) {
       cvdRunning += t.isBuyerMaker ? -t.size : t.size;
-      cvdHistory.push({ time: t.time, cvd: cvdRunning });
-      if (cvdHistory.length > CVD_WINDOW) cvdHistory.shift();
+      cvdRing.push({ time: t.time, cvd: cvdRunning });
     }
-    self.postMessage({ type: 'trades', trades, cvdPoints: [...cvdHistory] });
+    self.postMessage({ type: 'trades', trades, cvdPoints: cvdRing.toArray() });
   }
 };
