@@ -39,6 +39,7 @@ interface VirtualListProps {
   rows:      OrderBookLevel2[];
   side:      'bid' | 'ask';
   maxTotal:  number;
+  maxSize:   number;
   decimals:  number;
   compact:   boolean;
   /** asks list: flex-end so bottom-anchored (nearest spread at bottom) */
@@ -46,7 +47,7 @@ interface VirtualListProps {
 }
 
 const VirtualList: React.FC<VirtualListProps> = React.memo(({
-  rows, side, maxTotal, decimals, compact, justify = 'flex-start',
+  rows, side, maxTotal, maxSize, decimals, compact, justify = 'flex-start',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -90,6 +91,7 @@ const VirtualList: React.FC<VirtualListProps> = React.memo(({
               level={level}
               side={side}
               maxTotal={maxTotal}
+              maxSize={maxSize}
               decimals={decimals}
               compact={compact}
               rank={startIdx + i + 1}
@@ -118,6 +120,12 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
     return Math.max(a, b, 1);
   }, [displayAsks, displayBids]);
 
+  // v58: heatmap — max individual size across all visible levels
+  const maxSize = useMemo(() => {
+    const allSizes = [...displayAsks, ...displayBids].map((l) => l.size);
+    return Math.max(...allSizes, 1);
+  }, [displayAsks, displayBids]);
+
   const midDirection = useMemo(() => {
     if (!midPrice || !prevMidPrice || midPrice === prevMidPrice) return 'neutral';
     return midPrice > prevMidPrice ? 'up' : 'down';
@@ -140,14 +148,14 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', height: '100%',
-      background: 'rgba(14,17,26,1)', overflow: 'hidden',
+      background: 'rgba(9,11,18,1)', overflow: 'hidden',
     }}>
       {/* Header */}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         padding: compact ? '5px 8px' : '6px 10px',
-        borderBottom: '1px solid rgba(255,255,255,0.055)', flexShrink: 0,
-        background: 'rgba(14,17,26,1)',
+        borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0,
+        background: 'rgba(9,11,18,1)',
       }}>
         <span className="label-sm">ORDER BOOK</span>
         <div style={{ display: 'flex', gap: '1px' }}>
@@ -176,6 +184,7 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
         rows={[...displayAsks].reverse()}
         side="ask"
         maxTotal={maxTotal}
+        maxSize={maxSize}
         decimals={decimals}
         compact={compact}
         justify="flex-end"
@@ -188,6 +197,7 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
         rows={displayBids}
         side="bid"
         maxTotal={maxTotal}
+        maxSize={maxSize}
         decimals={decimals}
         compact={compact}
       />
@@ -221,8 +231,8 @@ ColHeader.displayName = 'ColHeader';
 const MidPriceRow: React.FC<{
   midPrice: number | null; midDirection: 'up'|'down'|'neutral'; spread: string; decimals: number;
 }> = React.memo(({ midPrice, midDirection, spread, decimals }) => {
-  const color = midDirection === 'up' ? 'rgba(38,166,154,1)' : midDirection === 'down' ? 'rgba(239,83,80,1)' : 'rgba(255,255,255,0.94)';
-  const bg    = midDirection === 'up' ? 'rgba(38,166,154,0.06)' : midDirection === 'down' ? 'rgba(239,83,80,0.06)' : 'rgba(255,255,255,0.018)';
+  const color = midDirection === 'up' ? 'rgba(0,255,157,1)' : midDirection === 'down' ? 'rgba(255,59,92,1)' : 'rgba(255,255,255,0.88)';
+  const bg    = midDirection === 'up' ? 'rgba(0,255,157,0.05)' : midDirection === 'down' ? 'rgba(255,59,92,0.05)' : 'rgba(255,255,255,0.015)';
   return (
     <div style={{
       padding: '5px 10px', background: bg, flexShrink: 0,
@@ -248,11 +258,11 @@ MidPriceRow.displayName = 'MidPriceRow';
 
 interface OrderRowProps {
   rank: number; level: OrderBookLevel2; side: 'bid' | 'ask';
-  maxTotal: number; decimals: number; compact: boolean;
+  maxTotal: number; maxSize: number; decimals: number; compact: boolean;
 }
 
 const OrderRow: React.FC<OrderRowProps> = React.memo(({
-  rank, level, side, maxTotal, decimals, compact,
+  rank, level, side, maxTotal, maxSize, decimals, compact,
 }) => {
   const rowRef      = useRef<HTMLDivElement>(null);
   const prevSizeRef = useRef(level.size);
@@ -271,12 +281,20 @@ const OrderRow: React.FC<OrderRowProps> = React.memo(({
   }
   prevSizeRef.current = level.size;
 
-  const isBid     = side === 'bid';
-  const isWhale   = level.isWhale;
-  const baseColor = isBid ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
-  const color     = isWhale ? 'rgba(242,142,44,1)' : baseColor;
-  const fillColor = isWhale ? 'rgba(242,142,44,0.11)' : isBid ? 'rgba(38,166,154,0.09)' : 'rgba(239,83,80,0.09)';
-  const depthPct  = Math.min((level.total / maxTotal) * 100, 100);
+  const isBid      = side === 'bid';
+  const isWhale    = level.isWhale;
+  // v58: electric colors
+  const baseColor  = isBid ? 'rgba(0,255,157,1)' : 'rgba(255,59,92,1)';
+  const color      = isWhale ? 'rgba(242,162,33,1)' : baseColor;
+  // v58: heatmap intensity — larger orders = more opaque fill
+  const intensity  = Math.min(level.size / maxSize, 1);
+  const fillOpacity = isWhale ? 0.14 : 0.03 + intensity * 0.16;
+  const fillColor  = isWhale
+    ? `rgba(242,162,33,${fillOpacity})`
+    : isBid
+    ? `rgba(0,255,157,${fillOpacity})`
+    : `rgba(255,59,92,${fillOpacity})`;
+  const depthPct   = Math.min((level.total / maxTotal) * 100, 100);
 
   return (
     <div
@@ -287,33 +305,43 @@ const OrderRow: React.FC<OrderRowProps> = React.memo(({
         gridTemplateColumns: compact ? '1fr 1fr 1fr' : '20px 1fr 1fr 1fr',
         padding: compact ? '1.5px 8px' : '1.5px 10px',
         gap: '4px', height: ROW_H + 'px', alignItems: 'center',
-        fontSize: '11px', fontWeight: isWhale ? 700 : 600,
+        fontSize: '11px', fontWeight: isWhale ? 700 : 500,
         position: 'relative', cursor: 'default', flexShrink: 0,
-        borderLeft: isWhale ? '2px solid rgba(242,142,44,0.6)' : '2px solid transparent',
+        borderLeft: isWhale ? '2px solid rgba(242,162,33,0.6)' : '2px solid transparent',
       }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.035)'; }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)'; }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
     >
+      {/* Depth bar */}
       <div style={{
         position: 'absolute', top: 0, bottom: 0,
         [isBid ? 'left' : 'right']: 0,
         width: depthPct + '%',
+        background: `rgba(255,255,255,0.025)`,
+        transition: 'width 150ms ease-out',
+        pointerEvents: 'none',
+      }} />
+      {/* Heatmap fill — intensity based on size */}
+      <div style={{
+        position: 'absolute', top: 0, bottom: 0,
+        [isBid ? 'left' : 'right']: 0,
+        width: Math.min((level.size / maxSize) * 100, 100) + '%',
         background: fillColor,
-        transition: 'width 180ms ease-out',
+        transition: 'width 200ms ease-out, background 200ms ease-out',
         pointerEvents: 'none',
       }} />
       {!compact && (
-        <span style={{ color: isWhale ? 'rgba(242,142,44,0.50)' : 'rgba(255,255,255,0.10)', fontSize: '8.5px', position: 'relative', zIndex: 1 }}>
+        <span style={{ color: isWhale ? 'rgba(242,162,33,0.50)' : 'rgba(255,255,255,0.10)', fontSize: '8.5px', position: 'relative', zIndex: 1 }}>
           {isWhale ? '🐋' : rank}
         </span>
       )}
-      <span className="mono-num" style={{ textAlign: 'right', color, position: 'relative', zIndex: 1 }}>
+      <span className="mono-num" style={{ textAlign: 'right', color, position: 'relative', zIndex: 1, fontSize: '10.5px' }}>
         {level.price.toFixed(decimals)}
       </span>
-      <span className="mono-num" style={{ textAlign: 'right', color: isWhale ? 'rgba(242,142,44,0.80)' : 'rgba(255,255,255,0.52)', position: 'relative', zIndex: 1 }}>
+      <span className="mono-num" style={{ textAlign: 'right', color: isWhale ? 'rgba(242,162,33,0.80)' : 'rgba(255,255,255,0.45)', position: 'relative', zIndex: 1 }}>
         {formatSize(level.size)}
       </span>
-      <span className="mono-num" style={{ textAlign: 'right', color: 'rgba(255,255,255,0.22)', position: 'relative', zIndex: 1 }}>
+      <span className="mono-num" style={{ textAlign: 'right', color: 'rgba(255,255,255,0.18)', position: 'relative', zIndex: 1 }}>
         {formatSize(level.total)}
       </span>
     </div>
@@ -328,17 +356,17 @@ export const PressureBar: React.FC<{ bidPercent: number }> = React.memo(({ bidPe
   return (
     <div style={{
       padding: '5px 10px',
-      borderTop: '1px solid rgba(255,255,255,0.055)',
+      borderTop: '1px solid rgba(255,255,255,0.05)',
       display: 'flex', alignItems: 'center', gap: '7px', flexShrink: 0,
-      background: 'rgba(14,17,26,1)',
+      background: 'rgba(9,11,18,1)',
     }}>
-      <span className="mono-num" style={{ fontSize: '9.5px', fontWeight: 800, color: 'rgba(38,166,154,1)', whiteSpace: 'nowrap' }}>
+      <span className="mono-num" style={{ fontSize: '9.5px', fontWeight: 800, color: 'rgba(0,255,157,1)', whiteSpace: 'nowrap' }}>
         BID {bidPercent.toFixed(1)}%
       </span>
-      <div style={{ flex: 1, height: '3px', borderRadius: '2px', background: 'rgba(239,83,80,0.18)', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: bidPercent + '%', background: 'rgba(38,166,154,1)', borderRadius: '2px', transition: 'width 350ms ease-out' }} />
+      <div style={{ flex: 1, height: '3px', borderRadius: '2px', background: 'rgba(255,59,92,0.15)', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: bidPercent + '%', background: 'rgba(0,255,157,1)', borderRadius: '2px', transition: 'width 350ms ease-out' }} />
       </div>
-      <span className="mono-num" style={{ fontSize: '9.5px', fontWeight: 800, color: 'rgba(239,83,80,1)', whiteSpace: 'nowrap' }}>
+      <span className="mono-num" style={{ fontSize: '9.5px', fontWeight: 800, color: 'rgba(255,59,92,1)', whiteSpace: 'nowrap' }}>
         {askPct.toFixed(1)}% ASK
       </span>
     </div>
