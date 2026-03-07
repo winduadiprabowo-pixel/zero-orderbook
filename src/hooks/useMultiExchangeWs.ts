@@ -1,14 +1,11 @@
 /**
- * useMultiExchangeWs.ts — ZERØ ORDER BOOK v51
+ * useMultiExchangeWs.ts — ZERØ ORDER BOOK v59
  *
- * FIXES v51:
- *   1. RECONNECT LOOP FIX — connect() dikeluarkan dari useEffect deps.
- *      useRef untuk stable connect reference. Tidak reconnect infinite saat symbol/exchange berubah.
- *   2. NETWORK-AWARE — reduce levels kalau koneksi 2g/3g.
- *   3. CIRCULAR BUFFER CVD — O(1) push, no more shift() O(n).
- *   4. DEVICE PROFILE — maxLevels dari detectDeviceProfile().
- *   5. PING KEEPALIVE — Bybit 20s ping, Binance tidak perlu (server-side ping).
- *   6. BYBIT FALLBACK — tetap dari v47, 5s timeout ke Binance.
+ * FIXES v59:
+ *   1. BYBIT TIMEOUT — naik dari 5s ke 10s (CF Worker SG perlu waktu lebih).
+ *   2. document.hidden SKIP DIHAPUS — initial snapshot harus diproses meski tab unfocused.
+ *      Tanpa ini, bids/asks map kosong selamanya kalau tab unfocus saat WS connect.
+ *   3. parseBinance depth — support both bids/asks AND b/a field names + guard empty array.
  *
  * rgba() only ✓ · RAF-gated ✓ · mountedRef ✓ · zero mock data ✓
  */
@@ -39,7 +36,7 @@ const EMPTY_STATE: ExchangeState = {
   status: 'disconnected', latencyMs: null, activeFeed: 'bybit',
 };
 
-const BYBIT_TIMEOUT_MS = 5_000;
+const BYBIT_TIMEOUT_MS = 10_000;
 
 type PriceMap = Map<string, number>;
 const WHALE = 100_000;
@@ -192,10 +189,13 @@ export function useMultiExchangeWs(
     if (!stream || !d) return;
 
     if (stream.includes('@depth')) {
-      const bids = (d.bids as [string,string][]) ?? [];
-      const asks = (d.asks as [string,string][]) ?? [];
-      bidsMap.current = new Map(bids.map(([p, s]) => [p, parseFloat(s)]));
-      asksMap.current = new Map(asks.map(([p, s]) => [p, parseFloat(s)]));
+      // depth20@100ms: always full snapshot, bids/asks at d.bids and d.asks
+      const bids = (d.bids as [string,string][]) ?? (d.b as [string,string][]) ?? [];
+      const asks = (d.asks as [string,string][]) ?? (d.a as [string,string][]) ?? [];
+      if (bids.length > 0 || asks.length > 0) {
+        bidsMap.current = new Map(bids.map(([p, s]) => [p, parseFloat(s)]));
+        asksMap.current = new Map(asks.map(([p, s]) => [p, parseFloat(s)]));
+      }
       draft.bids = mapToLevels(bidsMap.current, false, levelsRef.current);
       draft.asks = mapToLevels(asksMap.current, true,  levelsRef.current);
     }
@@ -341,7 +341,7 @@ export function useMultiExchangeWs(
 
     ws.onmessage = (ev) => {
       if (!mountedRef.current) return;
-      if (document.hidden) return; // v50: skip parse when tab hidden
+      // NOTE: do NOT skip on document.hidden — we need initial snapshot even when tab is unfocused
       try {
         const data = JSON.parse(ev.data as string) as Record<string, unknown>;
         if (data.op === 'pong' || data.op === 'subscribe') return;
@@ -366,8 +366,6 @@ export function useMultiExchangeWs(
   }, [flushQueue, setStatus]);
 
   // ── Main connect — stable via useRef ─────────────────────────────────────
-  // KEY FIX v51: connectRef.current used in onclose → no stale closure,
-  // no infinite reconnect loop when exchange/symbol deps change.
   const connectRef = useRef<() => void>(() => {});
 
   const connect = useCallback(() => {
