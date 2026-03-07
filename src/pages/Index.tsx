@@ -475,8 +475,18 @@ const Index: React.FC = () => {
   const obStatus     = exData.status;
   const tickerStatus = exData.status;
   const latencyMs    = exData.latencyMs;
-  const lastUpdate   = Date.now(); // always fresh
-  const obRetry      = useCallback(() => {}, []); // handled internally by hook
+  const lastUpdate   = Date.now();
+  const obRetry      = useCallback(() => {}, []);
+
+  // v61: signal splash to hide once first real data arrives (bids + ticker ready)
+  const splashFiredRef = useRef(false);
+  useEffect(() => {
+    if (splashFiredRef.current) return;
+    if (bids.length > 0 && ticker?.lastPrice) {
+      splashFiredRef.current = true;
+      (window as unknown as Record<string, () => void>).__splashDone?.();
+    }
+  }, [bids.length, ticker?.lastPrice]); // handled internally by hook
   const { events: liqEvents, stats: liqStats, wsStatus: liqStatus }  = useLiquidations();
   const globalStats                                                   = useGlobalStats();
 
