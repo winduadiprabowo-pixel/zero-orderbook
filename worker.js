@@ -66,7 +66,14 @@ async function handleWebSocket(request, url) {
   let targetUrl;
 
   if (url.pathname.startsWith('/ws/')) {
+    // Single stream: /ws/btcusdt@trade → wss://stream.binance.me/ws/btcusdt@trade
     targetUrl = 'wss://stream.binance.me/ws/' + url.pathname.slice(4);
+  } else if (url.pathname.startsWith('/stream/')) {
+    // v55c: Combined stream path-based
+    // /stream/btcusdt@depth20@100ms/btcusdt@trade/btcusdt@ticker
+    // → wss://stream.binance.me/stream?streams=btcusdt@depth20@100ms/btcusdt@trade/btcusdt@ticker
+    const streams = url.pathname.slice(8); // remove /stream/
+    targetUrl = 'wss://stream.binance.me/stream?streams=' + streams;
   } else if (url.pathname.startsWith('/fstream/')) {
     targetUrl = 'wss://fstream.binance.me/ws/' + url.pathname.slice(9);
   } else if (url.pathname.startsWith('/bybit/')) {
