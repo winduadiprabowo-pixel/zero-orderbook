@@ -554,6 +554,11 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
               : 'rgba(239,83,80,0.40)',
           };
           candleSerRef.current?.update(candle);
+          // v57: update priceLineColor dynamically — green if up, red if down
+          const lineColor = parseFloat(k.c) >= parseFloat(k.o)
+            ? 'rgba(52,211,193,1)'
+            : 'rgba(255,95,88,1)';
+          candleSerRef.current?.applyOptions({ priceLineColor: lineColor });
           volSerRef.current?.update(vol);
           // keep candlesRef in sync for visible range calculation
           const arr = candlesRef.current;
