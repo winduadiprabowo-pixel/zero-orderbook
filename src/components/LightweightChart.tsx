@@ -1,5 +1,7 @@
 /**
- * LightweightChart.tsx — ZERØ ORDER BOOK v47
+ * LightweightChart.tsx — ZERØ ORDER BOOK v60
+ * CHANGE: CandleCountdown pindah dari toolbar → overlay di chart container
+ *   nempel di price axis kanan (TradingView style) — stack di bawah price label
  *
  * REPLACES TradingViewChart.tsx (iframe embed + 50+ chunk JS → ERR_INSUFFICIENT_RESOURCES)
  * NEW: TradingView Lightweight Charts v4 — self-contained, 200KB, 60fps, zero external chunks.
@@ -179,6 +181,53 @@ const CandleCountdown: React.FC<{ interval: Interval }> = React.memo(({ interval
   );
 });
 CandleCountdown.displayName = 'CandleCountdown';
+
+// ── Candle Countdown Overlay — TradingView style nempel di price axis ─────────
+
+const CandleCountdownOverlay: React.FC<{ interval: Interval }> = React.memo(({ interval }) => {
+  const [remaining, setRemaining] = useState(0);
+
+  useEffect(() => {
+    const totalMs = INTERVAL_MS[interval];
+    const tick = () => {
+      const now = Date.now();
+      const rem = Math.ceil((totalMs - (now % totalMs)) / 1000);
+      setRemaining(rem);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [interval]);
+
+  const mm     = Math.floor(remaining / 60).toString().padStart(2, '0');
+  const ss     = (remaining % 60).toString().padStart(2, '0');
+  const str    = interval === '1d'
+    ? Math.floor(remaining / 3600) + 'h ' + Math.floor((remaining % 3600) / 60) + 'm'
+    : remaining >= 60 ? mm + ':' + ss : ss + 's';
+  const urgent = remaining <= 10;
+
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      minWidth: '52px',
+      padding: '3px 8px',
+      background: urgent ? 'rgba(242,142,44,0.18)' : 'rgba(9,11,18,0.85)',
+      border: '1px solid ' + (urgent ? 'rgba(242,142,44,0.55)' : 'rgba(255,255,255,0.10)'),
+      borderRadius: '3px',
+      backdropFilter: 'blur(4px)',
+    }}>
+      <span className="mono-num" style={{
+        fontSize: '11px', fontWeight: 800,
+        color: urgent ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.60)',
+        letterSpacing: '0.05em',
+        lineHeight: 1,
+      }}>
+        {str}
+      </span>
+    </div>
+  );
+});
+CandleCountdownOverlay.displayName = 'CandleCountdownOverlay';
 
 // ── Mobile Stats Strip ────────────────────────────────────────────────────────
 
@@ -659,8 +708,6 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
         ))}
 
         <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.07)', margin: '0 6px', flexShrink: 0 }} />
-        <CandleCountdown interval={interval} />
-        <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.07)', margin: '0 6px', flexShrink: 0 }} />
 
         {/* OHLCV crosshair legend */}
         <OHLCVLegend legend={legend} dec={dec} />
@@ -688,8 +735,21 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
         </span>
       </div>
 
-      {/* Chart container */}
-      <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} />
+      {/* Chart container + countdown overlay */}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        {/* v60: Countdown overlay — TradingView style, nempel di price axis kanan */}
+        <div style={{
+          position: 'absolute',
+          // right ~65px = approximate width of price axis
+          right: 0,
+          bottom: '28px', // above time axis
+          pointerEvents: 'none',
+          zIndex: 10,
+        }}>
+          <CandleCountdownOverlay interval={interval} />
+        </div>
+      </div>
 
       <style>{`
         .mobile-chart-stats { display: none; }
