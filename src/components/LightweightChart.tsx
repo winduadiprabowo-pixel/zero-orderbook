@@ -71,18 +71,33 @@ const BINANCE_INTERVAL: Record<Interval, string> = {
   '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d',
 };
 
-// ── Binance REST fetch (direct — no proxy, public endpoint) ───────────────────
+// ── Binance REST fetch — v55: via CF Worker proxy (SG) bypass ISP block ───────
+// Worker REST route: /api/v3/klines → https://api.binance.me/api/v3/klines
+const PROXY_REST = import.meta.env.VITE_PROXY_URL
+  ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
+const PROXY_WS_CHART = import.meta.env.VITE_PROXY_URL
+  ? import.meta.env.VITE_PROXY_URL.replace('https://', 'wss://')
+  : 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 
 async function fetchCandles(
   symbol: string,
   interval: Interval,
   signal: AbortSignal,
 ): Promise<CandlestickData<Time>[]> {
-  const sym = symbol.toUpperCase();
-  const url = `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${BINANCE_INTERVAL[interval]}&limit=500`;
-  const res = await fetch(url, { signal });
-  if (!res.ok) throw new Error(`Klines ${res.status}`);
-  const raw = await res.json() as unknown[][];
+  const sym    = symbol.toUpperCase();
+  const params = `?symbol=${sym}&interval=${BINANCE_INTERVAL[interval]}&limit=500`;
+  // Primary: CF Worker proxy → binance.me (SG, bypass ISP)
+  // Fallback: data-api.binance.vision (CDN mirror)
+  let raw: unknown[][];
+  try {
+    const res = await fetch(`${PROXY_REST}/api/v3/klines${params}`, { signal });
+    if (!res.ok) throw new Error(`proxy ${res.status}`);
+    raw = await res.json() as unknown[][];
+  } catch {
+    const res = await fetch(`https://data-api.binance.vision/api/v3/klines${params}`, { signal });
+    if (!res.ok) throw new Error(`Klines ${res.status}`);
+    raw = await res.json() as unknown[][];
+  }
   return raw.map((k) => ({
     time:  ((k[0] as number) / 1000) as Time,
     open:  parseFloat(k[1] as string),
@@ -97,11 +112,18 @@ async function fetchVolumes(
   interval: Interval,
   signal: AbortSignal,
 ): Promise<HistogramData<Time>[]> {
-  const sym = symbol.toUpperCase();
-  const url = `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${BINANCE_INTERVAL[interval]}&limit=500`;
-  const res = await fetch(url, { signal });
-  if (!res.ok) throw new Error(`Vol ${res.status}`);
-  const raw = await res.json() as unknown[][];
+  const sym    = symbol.toUpperCase();
+  const params = `?symbol=${sym}&interval=${BINANCE_INTERVAL[interval]}&limit=500`;
+  let raw: unknown[][];
+  try {
+    const res = await fetch(`${PROXY_REST}/api/v3/klines${params}`, { signal });
+    if (!res.ok) throw new Error(`proxy ${res.status}`);
+    raw = await res.json() as unknown[][];
+  } catch {
+    const res = await fetch(`https://data-api.binance.vision/api/v3/klines${params}`, { signal });
+    if (!res.ok) throw new Error(`Vol ${res.status}`);
+    raw = await res.json() as unknown[][];
+  }
   return raw.map((k) => {
     const o = parseFloat(k[1] as string);
     const c = parseFloat(k[4] as string);
@@ -432,7 +454,8 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
     if (!mountedRef.current) return;
     const sym = symbol.toLowerCase();
     const iv  = BINANCE_INTERVAL[interval];
-    const url = `wss://stream.binance.com:9443/ws/${sym}@kline_${iv}`;
+    // v55: kline WS via CF Worker proxy /ws/ route
+    const url = `${PROXY_WS_CHART}/ws/${sym}@kline_${iv}`;
 
     setWsLive(false);
     try {
