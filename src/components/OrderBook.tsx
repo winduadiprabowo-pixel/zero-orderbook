@@ -1,8 +1,7 @@
 /**
- * OrderBook.tsx — ZERØ ORDER BOOK v44
- * Virtual list: hanya render rows yang visible di viewport.
- * Fixed row height → zero layout thrash.
- * Flash via DOM classList (zero re-render).
+ * OrderBook.tsx — ZERØ ORDER BOOK v60
+ * FIX: Ask side terpotong — both ask/bid containers now flex:1 + minHeight:0
+ * heatmap intensity, electric colors, virtual list, flash via DOM classList
  * rgba() only ✓ · React.memo ✓ · displayName ✓
  */
 
@@ -77,7 +76,9 @@ const VirtualList: React.FC<VirtualListProps> = React.memo(({
       ref={containerRef}
       onScroll={onScroll}
       style={{
-        flex: 1, overflowY: 'auto', minHeight: 0,
+        // v60 FIX: flex:1 + minHeight:0 ensures equal split for both ask and bid
+        flex: 1, minHeight: 0,
+        overflowY: 'auto',
         display: 'flex', flexDirection: 'column',
         justifyContent: justify,
       }}
@@ -179,7 +180,7 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
 
       <ColHeader compact={compact} />
 
-      {/* ASKS — reversed (lowest ask nearest spread) */}
+      {/* ASKS — reversed (lowest ask nearest spread), flex:1 half */}
       <VirtualList
         rows={[...displayAsks].reverse()}
         side="ask"
@@ -192,7 +193,7 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
 
       <MidPriceRow midPrice={midPrice} midDirection={midDirection} spread={spread} decimals={decimals} />
 
-      {/* BIDS */}
+      {/* BIDS — flex:1 half */}
       <VirtualList
         rows={displayBids}
         side="bid"
