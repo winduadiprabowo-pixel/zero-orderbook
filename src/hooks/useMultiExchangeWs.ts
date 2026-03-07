@@ -185,7 +185,7 @@ export function useMultiExchangeWs(
 
     if (stream.includes('@depth')) {
       const bids = (d.bids as [string,string][]) ?? [];
-      const asks = (d.asks as [string,string][]) ?? [];\
+      const asks = (d.asks as [string,string][]) ?? [];
       bidsMap.current = new Map(bids.map(([p, s]) => [p, parseFloat(s)]));
       asksMap.current = new Map(asks.map(([p, s]) => [p, parseFloat(s)]));
       draft.bids = mapToLevels(bidsMap.current, false, levelsRef.current);
