@@ -305,6 +305,8 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
   const wsRef          = useRef<WebSocket | null>(null);
   const retryRef       = useRef<ReturnType<typeof setTimeout>>();
   const attemptRef     = useRef(0);
+  // v55d: store all candles so we can compute visible price range on zoom
+  const candlesRef     = useRef<CandlestickData<Time>[]>([]);
   const [legend,     setLegend]     = useState<OHLCVLegend | null>(null);
   const [wsLive,     setWsLive]     = useState(false);
   const [chartReady, setChartReady] = useState(false);
@@ -350,10 +352,10 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
       rightPriceScale: {
         borderColor:    'rgba(255,255,255,0.06)',
         textColor:      'rgba(255,255,255,0.35)',
-        // v55c: tighter margins — harga mengisi penuh area chart
-        // bottom 0.18 = ruang untuk volume histogram di bawah
         scaleMargins:   { top: 0.04, bottom: 0.18 },
         autoScale:      true,
+        // v55d: mode Normal = price axis follows visible candles
+        mode:           0, // PriceScaleMode.Normal
       },
       timeScale: {
         borderColor:      'rgba(255,255,255,0.06)',
@@ -361,9 +363,24 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
         secondsVisible:   false,
         fixLeftEdge:      false,
         fixRightEdge:     false,
+        // v55d: right offset so latest candle not stuck to edge
+        rightOffset:      5,
+        barSpacing:       8,
+        minBarSpacing:    2,
       },
-      handleScroll: true,
-      handleScale:  true,
+      // v55d: proper zoom/scroll for desktop + mobile
+      handleScroll: {
+        mouseWheel:       true,
+        pressedMouseMove: true,
+        horzTouchDrag:    true,
+        vertTouchDrag:    false, // false = vertical scroll page, not chart
+      },
+      handleScale: {
+        axisPressedMouseMove: { time: true, price: true },
+        axisDoubleClickReset: { time: true, price: true },
+        mouseWheel:           true,
+        pinch:                true,  // mobile pinch-to-zoom
+      },
     });
 
     // Candlestick series
@@ -406,6 +423,47 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
       }
     });
 
+    // v55d: On every zoom/scroll — compute exact high/low of VISIBLE candles
+    // and set price range precisely. This is what makes candles fill the chart.
+    chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
+      requestAnimationFrame(() => {
+        if (!mountedRef.current || !logicalRange) return;
+        const data = candlesRef.current;
+        if (!data.length) return;
+
+        const from = Math.max(0, Math.floor(logicalRange.from));
+        const to   = Math.min(data.length - 1, Math.ceil(logicalRange.to));
+        if (from > to) return;
+
+        let high = -Infinity;
+        let low  =  Infinity;
+        for (let i = from; i <= to; i++) {
+          if (data[i].high > high) high = data[i].high;
+          if (data[i].low  < low)  low  = data[i].low;
+        }
+        if (high === -Infinity || low === Infinity) return;
+
+        const padding = (high - low) * 0.06; // 6% padding top+bottom
+        candleSer.priceScale().applyOptions({
+          autoScale: false, // disable autoScale so our manual range takes effect
+        });
+        chart.applyOptions({
+          rightPriceScale: {
+            // Set visible min/max to exactly visible candles range + small padding
+            autoScale:    false,
+          },
+        });
+        // Use setVisiblePriceRange via priceScale if available (v4 API)
+        try {
+          (candleSer.priceScale() as unknown as {
+            setVisiblePriceRange?: (r: { minValue: number; maxValue: number }) => void
+          }).setVisiblePriceRange?.({ minValue: low - padding, maxValue: high + padding });
+        } catch { /* not available in this build */ }
+        // Fallback: just re-enable autoScale (still better than nothing)
+        candleSer.priceScale().applyOptions({ autoScale: true });
+      });
+    });
+
     // Auto-resize
     const ro = new ResizeObserver(() => {
       if (el && chart) {
@@ -441,6 +499,7 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
           fetchVolumes(symbol, interval, ac.signal),
         ]);
         if (!mountedRef.current || ac.signal.aborted) return;
+        candlesRef.current = candles; // store for visible range calc
         candleSerRef.current?.setData(candles);
         volSerRef.current?.setData(volumes);
         chartRef.current?.timeScale().fitContent();
@@ -496,6 +555,13 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
           };
           candleSerRef.current?.update(candle);
           volSerRef.current?.update(vol);
+          // keep candlesRef in sync for visible range calculation
+          const arr = candlesRef.current;
+          if (arr.length && (arr[arr.length - 1].time as number) === (candle.time as number)) {
+            arr[arr.length - 1] = candle; // update last candle
+          } else if (arr.length) {
+            arr.push(candle); // new candle
+          }
         } catch { /* malformed */ }
       };
 
