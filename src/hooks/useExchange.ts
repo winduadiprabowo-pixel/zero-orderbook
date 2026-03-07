@@ -1,5 +1,5 @@
 /**
- * useExchange.ts — ZERØ ORDER BOOK v45
+ * useExchange.ts — ZERØ ORDER BOOK v53
  * Multi-exchange WebSocket abstraction.
  * Normalises Bybit / Binance / Coinbase into one interface.
  *
@@ -79,12 +79,16 @@ export function getSubscribeMsg(exchange: ExchangeId, symbol: string): object {
     case 'binance':
       // Combined stream — no subscribe needed, topics in URL
       return {};
-    case 'coinbase':
+    case 'coinbase': {
+      // v53 FIX: BTCUSDT → BTC-USD via toExchangeSymbol (consistent for ALL pairs)
+      // OLD BUG: sym.replace('USDT', '-USDT') → 'BTC-USDT' (wrong, Coinbase uses USD not USDT)
+      const productId = toExchangeSymbol('coinbase', sym); // BTCUSDT → BTC-USD
       return {
         type: 'subscribe',
-        product_ids: [sym.replace('USDT', '-USDT').replace('BTC', 'BTC')],
+        product_ids: [productId],
         channel: 'level2',
       };
+    }
   }
 }
 
