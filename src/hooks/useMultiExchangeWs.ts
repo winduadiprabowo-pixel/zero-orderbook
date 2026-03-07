@@ -73,17 +73,17 @@ function mapToLevels(map: PriceMap, isAsk: boolean, levels: number): OrderBookLe
   });
 }
 
-// v55: All WS routed through CF Worker proxy (SG) — bypass ISP block ID
+// v55c: CF Worker proxy — /stream/ route for combined stream
 const PROXY_WS  = import.meta.env.VITE_PROXY_URL
   ? import.meta.env.VITE_PROXY_URL.replace('https://', 'wss://')
   : 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 
-// Binance combined stream via CF Worker /ws/ route
-// Worker: /ws/* → wss://stream.binance.me/ws/*
+// Worker: /stream/sym@depth.../sym@trade/sym@ticker
+// → wss://stream.binance.me/stream?streams=sym@depth.../sym@trade/sym@ticker
 function getBinanceCombinedUrl(symbol: string): string {
   const sym = symbol.toLowerCase();
-  // Combined stream via proxy: /ws/stream?streams=...
-  return `${PROXY_WS}/ws/stream?streams=${sym}@depth20@100ms/${sym}@trade/${sym}@ticker`;
+  const streams = `${sym}@depth20@100ms/${sym}@trade/${sym}@ticker`;
+  return `${PROXY_WS}/stream/${streams}`;
 }
 
 export function useMultiExchangeWs(
