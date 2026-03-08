@@ -577,7 +577,7 @@ const HomeDashboard = memo(({
               <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: '13px 13px', borderTop: 'rgba(0,255,157,0.55) solid 2px' }}>
                 <div style={{ fontSize: 9, letterSpacing: 1.5, color: COLORS.muted, marginBottom: 5 }}>VOL 24H</div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text }}>
-                  {!globalStats.loading ? fmtCompact(globalStats.volume24h) : '—'}
+                  {!globalStats.loading ? fmtCompact(globalStats.totalVolume24h) : '—'}
                 </div>
                 <div style={{ fontSize: 9, color: COLORS.muted, marginTop: 3 }}>Global 24h volume</div>
               </div>
