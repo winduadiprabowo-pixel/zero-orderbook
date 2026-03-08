@@ -113,7 +113,9 @@ self.onmessage = (e: MessageEvent) => {
       const action = (msg.action as string) ?? 'update';
       const bids   = (msg.bids as [string,string,string,string][]) ?? [];
       const asks   = (msg.asks as [string,string,string,string][]) ?? [];
-      if (action === 'snapshot') {
+      // FIX v78: if we get 'update' before 'snapshot' (map empty), treat as snapshot
+      const isEmpty = bidsMap.size === 0 && asksMap.size === 0;
+      if (action === 'snapshot' || isEmpty) {
         bidsMap = new Map(bids.map(([p, s]) => [p, parseFloat(s)]));
         asksMap = new Map(asks.map(([p, s]) => [p, parseFloat(s)]));
       } else {

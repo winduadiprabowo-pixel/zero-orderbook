@@ -68,6 +68,7 @@ export function getSubscribeMsg(exchange: ExchangeId, symbol: string): object {
       return {
         op: 'subscribe',
         args: [
+          { channel: 'books5',      instId },  // v78: books5 faster snapshot + books full depth
           { channel: 'books',       instId },
           { channel: 'trades',      instId },
           { channel: 'tickers',     instId },

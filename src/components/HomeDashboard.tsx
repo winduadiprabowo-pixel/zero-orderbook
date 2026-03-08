@@ -1,4 +1,4 @@
-// HomeDashboard.tsx — v76b
+// HomeDashboard.tsx — v78
 // FIX v74:
 //   - Props interface disesuaikan persis dengan Index.tsx:
 //       tickerMap: TickerMap (Map<string, TickerSnapshot>)
@@ -21,6 +21,7 @@ import { createChart, ColorType } from 'lightweight-charts';
 import type { TickerMap } from '@/hooks/useAllTickers';
 import type { GlobalStats } from '@/types/market';
 import type { ExchangeId } from '@/hooks/useExchange';
+import CoinLogo from './CoinLogo';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -58,11 +59,19 @@ const EX_META: Record<ExchangeId, { label: string; color: string }> = {
 // ─── Exchange Logo SVGs ───────────────────────────────────────────────────────
 const BinanceLogo = memo(({ size = 22 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
-    <path fill="rgba(242,162,33,1)" d="M16 0L19.69 3.69L9.38 14L5.69 10.31L16 0Z"/>
-    <path fill="rgba(242,162,33,1)" d="M22.62 6.62L26.31 10.31L9.38 27.24L5.69 23.55L22.62 6.62Z"/>
-    <path fill="rgba(242,162,33,1)" d="M3.08 13.24L6.77 16.93L3.08 20.62L-0.61 16.93L3.08 13.24Z" transform="translate(3,0)"/>
-    <path fill="rgba(242,162,33,1)" d="M22.62 13.24L26.31 16.93L16 27.24L12.31 23.55L22.62 13.24Z"/>
-    <path fill="rgba(242,162,33,1)" d="M9.38 16L13.07 19.69L9.38 23.38L5.69 19.69L9.38 16Z"/>
+    {/* Top diamond */}
+    <path fill="rgba(242,162,33,1)" d="M16 3L18.83 5.83L16 8.66L13.17 5.83Z"/>
+    {/* Left diamond */}
+    <path fill="rgba(242,162,33,1)" d="M6.34 12.66L9.17 9.83L12 12.66L9.17 15.49Z"/>
+    {/* Center diamond */}
+    <path fill="rgba(242,162,33,1)" d="M16 12.66L20.83 17.49L16 22.32L11.17 17.49Z"/>
+    {/* Right diamond */}
+    <path fill="rgba(242,162,33,1)" d="M25.66 12.66L22.83 9.83L20 12.66L22.83 15.49Z"/>
+    {/* Bottom diamond */}
+    <path fill="rgba(242,162,33,1)" d="M16 25.34L18.83 22.51L21.66 25.34L18.83 28.17Z"/>
+    <path fill="rgba(242,162,33,1)" d="M10.34 25.34L13.17 22.51L16 25.34L13.17 28.17Z"/>
+    {/* Diagonal connector */}
+    <path fill="rgba(242,162,33,1)" d="M9.17 9.83L22.83 9.83L22.83 12.66L9.17 12.66Z" opacity="0"/>
   </svg>
 ));
 BinanceLogo.displayName = 'BinanceLogo';
@@ -644,11 +653,13 @@ const HomeDashboard = memo(({
                         BEST
                       </div>
                     )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      {React.createElement(EX_LOGO[ex], { size: 22 })}
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: isActive ? meta.color : COLORS.border, display: 'inline-block' }} />
+                    {/* Logo + status dot — centered */}
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: 6, position: 'relative' }}>
+                      {React.createElement(EX_LOGO[ex], { size: 26 })}
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: isActive ? meta.color : COLORS.border, display: 'inline-block', position: 'absolute', top: 0, right: 0 }} />
                     </div>
-                    <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.5, color: isActive ? meta.color : COLORS.muted, textTransform: 'uppercase' as const, marginBottom: 6 }}>
+                    {/* Exchange name — centered */}
+                    <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.5, color: isActive ? meta.color : COLORS.muted, textTransform: 'uppercase' as const, marginBottom: 6, textAlign: 'center' }}>
                       {meta.label}
                     </div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.text, marginBottom: 5 }}>
@@ -745,9 +756,9 @@ const HomeDashboard = memo(({
                       WebkitTapHighlightColor: 'transparent',
                     }}
                   >
-                    {/* icon */}
-                    <div style={{ width: 34, height: 34, borderRadius: '50%', background: isUp ? 'rgba(0,255,157,0.10)' : 'rgba(255,59,92,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, fontWeight: 700, color: isUp ? COLORS.bid : COLORS.ask }}>
-                      {base.slice(0, 2)}
+                    {/* icon — real coin logo */}
+                    <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, overflow: 'hidden' }}>
+                      <CoinLogo symbol={base} size={34} />
                     </div>
                     {/* name + vol */}
                     <div style={{ flex: 1, minWidth: 0 }}>

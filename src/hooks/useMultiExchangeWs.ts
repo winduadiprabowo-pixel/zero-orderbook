@@ -393,7 +393,9 @@ export function useMultiExchangeWs(
         if (worker) {
           worker.postMessage({ type: 'orderbook', exchange: 'okx', action: action ?? 'update', bids: d.bids, asks: d.asks, levels: levelsRef.current });
         } else {
-          if (action === 'snapshot') {
+          // FIX v78: if maps empty (first msg after switch), treat as snapshot
+          const isEmpty = bidsMap.current.size === 0 && asksMap.current.size === 0;
+          if (action === 'snapshot' || isEmpty) {
             bidsMap.current = new Map(d.bids.map(([p, s]) => [p, parseFloat(s)]));
             asksMap.current = new Map(d.asks.map(([p, s]) => [p, parseFloat(s)]));
           } else {
