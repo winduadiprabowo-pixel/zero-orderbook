@@ -612,6 +612,9 @@ const Index: React.FC = () => {
   const [activeSymbol, setActiveSymbol] = useState<string>(() => {
     try { return localStorage.getItem('zero_symbol') ?? 'btcusdt'; } catch { return 'btcusdt'; }
   });
+  // v65: wsSymbol feeds WS hook — debounced 80ms
+  // tap ETH→BTC→SOL: UI highlights all 3 instantly, WS reconnects only for final SOL
+  const [wsSymbol, setWsSymbol] = useState(activeSymbol);
   const [interval, setIntervalState] = useState<Interval>(() => {
     try {
       const saved = localStorage.getItem('zero_interval') as Interval | null;
@@ -638,7 +641,7 @@ const Index: React.FC = () => {
     () => Math.floor(50 * throttleFactor),
     [throttleFactor],
   );
-  const exData = useMultiExchangeWs(exchange, activeSymbol, thermalLevels);
+  const exData = useMultiExchangeWs(exchange, wsSymbol, thermalLevels);
   const { bids, asks, trades, cvdPoints, ticker } = exData;
   const obStatus     = exData.status;
   const tickerStatus = exData.status;
@@ -691,18 +694,28 @@ const Index: React.FC = () => {
     return t > 0 ? (bv / t) * 100 : 50;
   }, [bids, asks]);
 
+  // v65: debounce symbol switch — 80ms cancels intermediate taps
+  // ETH→BTC→SOL in 200ms = only SOL triggers WS reconnect
+  const symbolDebounceRef = useRef<ReturnType<typeof setTimeout>>();
+
   const handleSymbolChange = useCallback((sym: string) => {
+    // Instant: UI highlight + mobile tab switch
     setActiveSymbol(sym);
-    try { localStorage.setItem('zero_symbol', sym); } catch {}
-    prevMidRef.current = null;
-    const found = pairs.find((p) => p.symbol === sym);
-    if (found) {
-      const opts = getPrecisionOptions(found.priceDec);
-      setPrecision(opts[1] ?? '0.01');
-    }
     setShowMarkets(false);
-    // On mobile: auto-switch to chart view after selecting pair
     setMobileTab('chart');
+    prevMidRef.current = null;
+
+    // Debounced 80ms: WS reconnect + precision + localStorage
+    if (symbolDebounceRef.current) clearTimeout(symbolDebounceRef.current);
+    symbolDebounceRef.current = setTimeout(() => {
+      setWsSymbol(sym);
+      const found = pairs.find((p) => p.symbol === sym);
+      if (found) {
+        const opts = getPrecisionOptions(found.priceDec);
+        setPrecision(opts[1] ?? '0.01');
+      }
+      try { localStorage.setItem('zero_symbol', sym); } catch {}
+    }, 80);
   }, [pairs]);
 
   const handleIntervalChange  = useCallback((i: Interval) => {
@@ -726,14 +739,14 @@ const Index: React.FC = () => {
   // chartPanel: only changes on symbol/interval/exchange/ticker/symbolInfo
   const chartPanel = useMemo(() => (
     <LightweightChart
-      symbol={activeSymbol}
+      symbol={wsSymbol}
       interval={interval}
       onIntervalChange={handleIntervalChange}
       ticker={ticker}
       symbolInfo={symbolInfo}
       exchange={exchange}
     />
-  ), [activeSymbol, interval, handleIntervalChange, ticker, symbolInfo, exchange]);
+  ), [wsSymbol, interval, handleIntervalChange, ticker, symbolInfo, exchange]);
 
   // orderBookPanel: changes on bids/asks/mid/precision — fine to recreate on those
   const orderBookPanel = (levels: number) => (
