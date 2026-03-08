@@ -1,10 +1,12 @@
 /**
- * useMultiExchangeWs.ts — ZERØ ORDER BOOK v60
+ * useMultiExchangeWs.ts — ZERØ ORDER BOOK v62
  *
- * PERF v60:
- *   1. flushQueue: dirty flag — skip setState if nothing changed
- *   2. trades concat: avoid spread on large arrays
- *   3. version bump
+ * v62:
+ *   1. Real latency tracking — exchange timestamp → browser delta
+ *   2. Latency smoothed with EMA (no jitter spike in display)
+ *   3. ExponentialBackoff cap at 30s with jitter (already in formatters)
+ *   4. Heartbeat/ping timeout detection — close dead connections faster
+ *   5. visibilitychange: reconnect immediately when tab becomes visible
  *
  * rgba() only ✓ · RAF-gated ✓ · mountedRef ✓ · zero mock data ✓
  */
@@ -104,6 +106,13 @@ export function useMultiExchangeWs(
 
   const rafRef   = useRef(0);
   const queueRef = useRef<Record<string, unknown>[]>([]);
+
+  // v62: latency tracking — EMA smoothed
+  const latencyEmaRef   = useRef<number | null>(null);
+  const lastPingTimeRef = useRef<number>(0);
+  // v62: heartbeat watchdog — detect dead connections faster (15s timeout)
+  const heartbeatRef    = useRef<ReturnType<typeof setTimeout>>();
+  const HEARTBEAT_TIMEOUT = 15_000;
 
   const bidsMap      = useRef<PriceMap>(new Map());
   const asksMap      = useRef<PriceMap>(new Map());
@@ -250,6 +259,16 @@ export function useMultiExchangeWs(
     }
   }, []);
 
+  // v62: compute EMA latency from exchange timestamp
+  const computeLatency = useCallback((exchangeTs: number): void => {
+    if (!exchangeTs || exchangeTs <= 0) return;
+    const now = Date.now();
+    const raw = now - exchangeTs;
+    if (raw < 0 || raw > 10_000) return; // ignore bogus values
+    const ema = latencyEmaRef.current;
+    latencyEmaRef.current = ema === null ? raw : Math.round(ema * 0.8 + raw * 0.2);
+  }, []);
+
   const flushQueue = useCallback(() => {
     rafRef.current = 0;
     if (!mountedRef.current) return;
@@ -266,6 +285,14 @@ export function useMultiExchangeWs(
       if (feed === 'bybit')    parseBybit(msg, draft);
       if (feed === 'binance')  parseBinance(msg, draft);
       if (feed === 'coinbase') parseCoinbase(msg, draft);
+
+      // v62: extract exchange timestamp for latency measurement
+      // Bybit: data.ts (ms) | Binance trade: data.data.T | Bybit trade: data.data[0].T
+      const ts = (msg.ts as number) ||
+        (msg.data && Array.isArray(msg.data) && (msg.data[0] as Record<string,number>)?.T) ||
+        ((msg.data as Record<string,unknown>)?.T as number) ||
+        0;
+      if (ts > 1_000_000_000_000) computeLatency(ts); // sanity: must be ms epoch
 
       if (draft.trades) {
         draft._newTrades = [...(draft._newTrades ?? []), ...draft.trades];
@@ -287,6 +314,8 @@ export function useMultiExchangeWs(
       if (draft.bids)      next.bids = draft.bids;
       if (draft.asks)      next.asks = draft.asks;
       if (draft.cvdPoints) next.cvdPoints = draft.cvdPoints;
+      // v62: update latency from EMA ref
+      if (latencyEmaRef.current !== null) next.latencyMs = latencyEmaRef.current;
       if (draft.trades) {
         // v60: cap at 50, avoid spread concat on large arrays
         const combined = draft.trades.length >= 50
@@ -337,14 +366,35 @@ export function useMultiExchangeWs(
       if (!mountedRef.current) return;
       if (bybitTmrRef.current) { clearTimeout(bybitTmrRef.current); bybitTmrRef.current = undefined; }
       attemptRef.current = 0;
+      latencyEmaRef.current = null; // reset EMA on new connection
       setStatus('connected');
       setState((prev) => ({ ...prev, activeFeed: feed }));
       if (Object.keys(subMsg).length > 0) ws.send(JSON.stringify(subMsg));
       if (withPing) {
         pingRef.current = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ op: 'ping' }));
+          if (ws.readyState === WebSocket.OPEN) {
+            lastPingTimeRef.current = Date.now();
+            ws.send(JSON.stringify({ op: 'ping' }));
+          }
         }, 20_000);
       }
+      // v62: heartbeat watchdog — restart connection if no message in 15s
+      function resetHeartbeat() {
+        if (heartbeatRef.current) clearTimeout(heartbeatRef.current);
+        heartbeatRef.current = setTimeout(() => {
+          if (!mountedRef.current) return;
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close(); // force reconnect
+          }
+        }, HEARTBEAT_TIMEOUT);
+      }
+      resetHeartbeat();
+      // patch onmessage to reset watchdog on every message
+      const origMsg = ws.onmessage;
+      ws.onmessage = (ev) => {
+        resetHeartbeat();
+        if (origMsg) origMsg.call(ws, ev);
+      };
     };
 
     ws.onmessage = (ev) => {
@@ -360,6 +410,7 @@ export function useMultiExchangeWs(
 
     ws.onclose = () => {
       if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = undefined; }
+      if (heartbeatRef.current) { clearTimeout(heartbeatRef.current); heartbeatRef.current = undefined; }
       setStatus('disconnected');
       if (mountedRef.current) {
         // ── v51 FIX: use refs to avoid stale closure ──────────────────────
@@ -432,12 +483,26 @@ export function useMultiExchangeWs(
 
     connect();
 
+    // v62: reconnect immediately when tab becomes visible again
+    const onVisible = () => {
+      if (!document.hidden && mountedRef.current) {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+          attemptRef.current = 0; // reset backoff on manual focus
+          connectRef.current();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
       mountedRef.current = false;
-      if (retryRef.current)    clearTimeout(retryRef.current);
-      if (pingRef.current)     clearInterval(pingRef.current);
-      if (rafRef.current)      cancelAnimationFrame(rafRef.current);
-      if (bybitTmrRef.current) clearTimeout(bybitTmrRef.current);
+      document.removeEventListener('visibilitychange', onVisible);
+      if (retryRef.current)     clearTimeout(retryRef.current);
+      if (pingRef.current)      clearInterval(pingRef.current);
+      if (rafRef.current)       cancelAnimationFrame(rafRef.current);
+      if (bybitTmrRef.current)  clearTimeout(bybitTmrRef.current);
+      if (heartbeatRef.current) clearTimeout(heartbeatRef.current);
       if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
