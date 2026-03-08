@@ -405,14 +405,18 @@ export function useMultiExchangeWs(
     if (!mountedRef.current) return;
     let ws: WebSocket;
     try { ws = new WebSocket(url); } catch { return; }
+
+    // v67 BUG1+3 FIX: set refs BEFORE callbacks so rapid switches
+    // don't let old WS onopen/onmessage corrupt activeFeedRef
     wsRef.current         = ws;
     activeFeedRef.current = feed;
 
     ws.onopen = () => {
-      if (!mountedRef.current) return;
+      // v67: guard — stale WS already replaced, ignore
+      if (!mountedRef.current || wsRef.current !== ws) return;
       if (bybitTmrRef.current) { clearTimeout(bybitTmrRef.current); bybitTmrRef.current = undefined; }
       attemptRef.current = 0;
-      latencyEmaRef.current = null; // reset EMA on new connection
+      latencyEmaRef.current = null;
       setStatus('connected');
       setState((prev) => ({ ...prev, activeFeed: feed }));
       if (Object.keys(subMsg).length > 0) ws.send(JSON.stringify(subMsg));
@@ -424,18 +428,14 @@ export function useMultiExchangeWs(
           }
         }, 20_000);
       }
-      // v62: heartbeat watchdog — restart connection if no message in 15s
       function resetHeartbeat() {
         if (heartbeatRef.current) clearTimeout(heartbeatRef.current);
         heartbeatRef.current = setTimeout(() => {
           if (!mountedRef.current) return;
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.close(); // force reconnect
-          }
+          if (ws.readyState === WebSocket.OPEN) ws.close();
         }, HEARTBEAT_TIMEOUT);
       }
       resetHeartbeat();
-      // patch onmessage to reset watchdog on every message
       const origMsg = ws.onmessage;
       ws.onmessage = (ev) => {
         resetHeartbeat();
@@ -444,8 +444,8 @@ export function useMultiExchangeWs(
     };
 
     ws.onmessage = (ev) => {
-      if (!mountedRef.current) return;
-      // NOTE: do NOT skip on document.hidden — we need initial snapshot even when tab is unfocused
+      // v67: guard — only process messages from active WS
+      if (!mountedRef.current || wsRef.current !== ws) return;
       try {
         const data = JSON.parse(ev.data as string) as Record<string, unknown>;
         if (data.op === 'pong' || data.op === 'subscribe') return;
@@ -455,11 +455,12 @@ export function useMultiExchangeWs(
     };
 
     ws.onclose = () => {
+      // v67: guard — ignore close if already replaced by newer WS
+      if (wsRef.current !== ws && wsRef.current !== null) return;
       if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = undefined; }
       if (heartbeatRef.current) { clearTimeout(heartbeatRef.current); heartbeatRef.current = undefined; }
       setStatus('disconnected');
       if (mountedRef.current) {
-        // ── v51 FIX: use refs to avoid stale closure ──────────────────────
         retryRef.current = setTimeout(() => {
           attemptRef.current++;
           connectRef.current();
@@ -470,15 +471,17 @@ export function useMultiExchangeWs(
     ws.onerror = () => ws.close();
   }, [flushQueue, setStatus]);
 
-  // ── Main connect — stable via useRef ─────────────────────────────────────
+  // ── Main connect ──────────────────────────────────────────────────────────
   const connectRef = useRef<() => void>(() => {});
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
 
-    // Cleanup existing
+    // v67 BUG2 FIX: cancel pending retry FIRST — prevents ghost reconnects
+    if (retryRef.current)    { clearTimeout(retryRef.current);    retryRef.current    = undefined; }
     if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
-    if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = undefined; }
+    if (pingRef.current)     { clearInterval(pingRef.current);    pingRef.current     = undefined; }
+    // v67 BUG4 FIX: always cancel bybitTmrRef (even when switching FROM bybit to other)
     if (bybitTmrRef.current) { clearTimeout(bybitTmrRef.current); bybitTmrRef.current = undefined; }
 
     setStatus('reconnecting');
