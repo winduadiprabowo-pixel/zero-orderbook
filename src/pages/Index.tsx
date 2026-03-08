@@ -224,13 +224,11 @@ const HeroPairCard: React.FC<{
   item:      SymbolInfo;
   isActive:  boolean;
   onSelect:  (sym: string) => void;
-  tickerMap: TickerMap;
-}> = React.memo(({ item, isActive, onSelect, tickerMap }) => {
+  price:     number;
+  changePct: number;
+}> = React.memo(({ item, isActive, onSelect, price, changePct }) => {
   const handleClick = useCallback(() => onSelect(item.symbol), [item.symbol, onSelect]);
-  const snap      = tickerMap.get(item.symbol.toUpperCase());
-  const price     = snap?.lastPrice ?? 0;
-  const changePct = snap?.changePct ?? 0;
-  const isUp      = changePct >= 0;
+  const isUp = changePct >= 0;
 
   return (
     <button
@@ -287,14 +285,11 @@ const MobileMarketRow: React.FC<{
   item:      SymbolInfo;
   isActive:  boolean;
   onSelect:  (sym: string) => void;
-  tickerMap: TickerMap;
-}> = React.memo(({ item, isActive, onSelect, tickerMap }) => {
+  price:     number;
+  changePct: number;
+  vol:       number;
+}> = React.memo(({ item, isActive, onSelect, price, changePct, vol }) => {
   const handleClick = useCallback(() => onSelect(item.symbol), [item.symbol, onSelect]);
-
-  const snap      = tickerMap.get(item.symbol.toUpperCase());
-  const price     = snap?.lastPrice ?? 0;
-  const changePct = snap?.changePct ?? 0;
-  const vol       = snap?.volume24h ?? item.volume24h ?? 0;
   const isUp      = changePct >= 0;
   // Bybit-style: solid pill badge
   const pillColor = isUp ? 'rgba(0,200,120,1)' : 'rgba(239,83,80,1)';
@@ -402,15 +397,19 @@ const MobileMarketList: React.FC<{
         className="hide-scrollbar"
         aria-label="Quick pair selector"
       >
-        {HERO_PAIRS.map((item) => (
-          <HeroPairCard
-            key={item.symbol}
-            item={item}
-            isActive={activeSymbol === item.symbol}
-            onSelect={onSelect}
-            tickerMap={tickerMap}
-          />
-        ))}
+        {HERO_PAIRS.map((item) => {
+          const snap = tickerMap.get(item.symbol.toUpperCase());
+          return (
+            <HeroPairCard
+              key={item.symbol}
+              item={item}
+              isActive={activeSymbol === item.symbol}
+              onSelect={onSelect}
+              price={snap?.lastPrice ?? 0}
+              changePct={snap?.changePct ?? 0}
+            />
+          );
+        })}
       </div>
       <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)', flexShrink: 0 }} />
 
@@ -486,15 +485,20 @@ const MobileMarketList: React.FC<{
 
       {/* List */}
       <div style={{ flex: 1, overflowY: 'auto' }} className="hide-scrollbar">
-        {filtered.map((item) => (
-          <MobileMarketRow
-            key={item.symbol}
-            item={item}
-            isActive={item.symbol === activeSymbol}
-            onSelect={onSelect}
-            tickerMap={tickerMap}
-          />
-        ))}
+        {filtered.map((item) => {
+          const snap = tickerMap.get(item.symbol.toUpperCase());
+          return (
+            <MobileMarketRow
+              key={item.symbol}
+              item={item}
+              isActive={item.symbol === activeSymbol}
+              onSelect={onSelect}
+              price={snap?.lastPrice ?? 0}
+              changePct={snap?.changePct ?? 0}
+              vol={snap?.volume24h ?? item.volume24h ?? 0}
+            />
+          );
+        })}
         {filtered.length === 0 && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -718,7 +722,9 @@ const Index: React.FC = () => {
     overflow: 'hidden', height: '100%',
   };
 
-  const chartPanel = (
+  // v64: useMemo panels — prevent re-create on every bids/asks WS frame
+  // chartPanel: only changes on symbol/interval/exchange/ticker/symbolInfo
+  const chartPanel = useMemo(() => (
     <LightweightChart
       symbol={activeSymbol}
       interval={interval}
@@ -727,8 +733,9 @@ const Index: React.FC = () => {
       symbolInfo={symbolInfo}
       exchange={exchange}
     />
-  );
+  ), [activeSymbol, interval, handleIntervalChange, ticker, symbolInfo, exchange]);
 
+  // orderBookPanel: changes on bids/asks/mid/precision — fine to recreate on those
   const orderBookPanel = (levels: number) => (
     <OrderBook
       bids={bids} asks={asks}
@@ -739,7 +746,8 @@ const Index: React.FC = () => {
     />
   );
 
-  const depthPanel = (
+  // depthPanel: bids/asks/mid — same cadence as orderbook, OK
+  const depthPanel = useMemo(() => (
     <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="DEPTH CHART">
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(16,19,28,1)' }}>
         <PanelHeader title="DEPTH CHART" />
@@ -748,22 +756,33 @@ const Index: React.FC = () => {
         </div>
       </div>
     </ProLock>
-  );
+  ), [isPro, handleOpenProModal, bids, asks, midPrice]);
 
-  const tradesPanel = <RecentTrades trades={trades} />;
-  const cvdPanel = <CvdChart points={cvdPoints} />;
-  const liqsPanel = (
+  // tradesPanel: only trades change — not bids/asks
+  const tradesPanel = useMemo(() => (
+    <RecentTrades trades={trades} />
+  ), [trades]);
+
+  // cvdPanel: only cvdPoints change
+  const cvdPanel = useMemo(() => (
+    <CvdChart points={cvdPoints} />
+  ), [cvdPoints]);
+
+  // liqsPanel: liqs only
+  const liqsPanel = useMemo(() => (
     <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="LIQUIDATION FEED">
       <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />
     </ProLock>
-  );
-  const marketDataPanel = (
+  ), [isPro, handleOpenProModal, liqEvents, liqStats, liqStatus]);
+
+  // marketDataPanel: ticker + symbolInfo only
+  const marketDataPanel = useMemo(() => (
     <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="MARKET DATA">
       <div style={{ ...P, overflowY: 'auto' }} className="hide-scrollbar">
         <MarketData ticker={ticker} symbolInfo={symbolInfo} />
       </div>
     </ProLock>
-  );
+  ), [isPro, handleOpenProModal, ticker, symbolInfo]);
 
   return (
     <div
