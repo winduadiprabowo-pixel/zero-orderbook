@@ -48,6 +48,7 @@ interface LightweightChartProps {
   ticker?:          TickerData | null;
   symbolInfo?:      SymbolInfo;
   exchange?:        ExchangeId;
+  hoveredPrice?:    number | null; // v66: orderbook hover → price line sync
 }
 
 interface OHLCVLegend {
@@ -346,6 +347,7 @@ WsStatusDot.displayName = 'WsStatusDot';
 
 const LightweightChart: React.FC<LightweightChartProps> = memo(({
   symbol, interval, onIntervalChange, ticker, symbolInfo, exchange = 'bybit',
+  hoveredPrice = null,
 }) => {
   const containerRef   = useRef<HTMLDivElement>(null);
   const chartRef       = useRef<IChartApi | null>(null);
@@ -657,6 +659,33 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
       }
     };
   }, [symbol, interval, chartReady, connectKlineWs]);
+
+  // v66: hoveredPrice — draw dotted price line when orderbook row hovered
+  const hoverLineRef = useRef<ReturnType<typeof candleSerRef.current.createPriceLine> | null>(null);
+  useEffect(() => {
+    const ser = candleSerRef.current;
+    if (!ser) return;
+    // Remove old line
+    if (hoverLineRef.current) {
+      try { ser.removePriceLine(hoverLineRef.current); } catch {}
+      hoverLineRef.current = null;
+    }
+    if (hoveredPrice == null) return;
+    hoverLineRef.current = ser.createPriceLine({
+      price: hoveredPrice,
+      color: 'rgba(255,255,255,0.25)',
+      lineWidth: 1,
+      lineStyle: 3, // dashed
+      axisLabelVisible: true,
+      title: '',
+    });
+    return () => {
+      if (hoverLineRef.current) {
+        try { ser.removePriceLine(hoverLineRef.current); } catch {}
+        hoverLineRef.current = null;
+      }
+    };
+  }, [hoveredPrice]);
 
   // Cleanup on unmount
   useEffect(() => {
