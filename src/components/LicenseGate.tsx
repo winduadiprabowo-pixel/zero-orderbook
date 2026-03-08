@@ -157,26 +157,59 @@ interface ProLockProps {
 export const ProLock: React.FC<ProLockProps> = React.memo(({ isPro, onClickPro, children, label }) => {
   if (isPro) return <>{children}</>;
 
+  const features: Record<string, { icon: string; desc: string }> = {
+    'DEPTH CHART':       { icon: '📊', desc: 'Bid/ask walls visualized — spot where price stalls' },
+    'LIQUIDATION FEED':  { icon: '💥', desc: 'Live liq events — track where whales get wiped' },
+    'MARKET DATA':       { icon: '📈', desc: 'Funding rate, OI, 24h stats — full market context' },
+  };
+  const feat = label ? features[label] : null;
+
   return (
     <div onClick={onClickPro} style={{ position: 'relative', height: '100%', width: '100%', overflow: 'hidden', cursor: 'pointer' }}>
       {/* Content blurred — FEELS real, makes trader want it */}
-      <div style={{ opacity: 0.18, filter: 'blur(1.5px)', height: '100%', pointerEvents: 'none', userSelect: 'none' as const }}>
+      <div style={{ opacity: 0.15, filter: 'blur(2px)', height: '100%', pointerEvents: 'none', userSelect: 'none' as const }}>
         {children}
       </div>
 
       {/* Gradient vignette */}
-      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(14,17,26,0.0) 0%, rgba(14,17,26,0.55) 100%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(14,17,26,0.0) 0%, rgba(14,17,26,0.65) 100%)', pointerEvents: 'none' }} />
 
-      {/* CTA */}
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
-        <div style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.28)', letterSpacing: '0.18em', textTransform: 'uppercase' as const, fontFamily: '"IBM Plex Mono", monospace' }}>
-          {label ?? 'PRO FEATURE'}
-        </div>
-        <div style={{ padding: '7px 20px', background: 'rgba(242,142,44,0.10)', border: '1px solid rgba(242,142,44,0.30)', borderRadius: '4px', fontSize: '10px', fontWeight: 700, color: 'rgba(242,142,44,0.92)', letterSpacing: '0.10em', fontFamily: '"IBM Plex Mono", monospace', boxShadow: '0 0 20px rgba(242,142,44,0.08)' }}>
+      {/* CTA overlay */}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '16px' }}>
+
+        {feat && (
+          <div style={{
+            textAlign: 'center' as const,
+            fontFamily: '"IBM Plex Mono", monospace',
+            marginBottom: '4px',
+          }}>
+            <div style={{ fontSize: '22px', marginBottom: '6px' }}>{feat.icon}</div>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.80)', letterSpacing: '-0.01em', marginBottom: '5px' }}>
+              {label}
+            </div>
+            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, maxWidth: '180px' }}>
+              {feat.desc}
+            </div>
+          </div>
+        )}
+
+        <button style={{
+          padding: '8px 22px',
+          background: 'rgba(242,142,44,0.12)',
+          border: '1px solid rgba(242,142,44,0.40)',
+          borderRadius: '5px',
+          fontSize: '10px', fontWeight: 700,
+          color: 'rgba(242,142,44,1)',
+          letterSpacing: '0.10em',
+          fontFamily: '"IBM Plex Mono", monospace',
+          cursor: 'pointer',
+          boxShadow: '0 0 24px rgba(242,142,44,0.10)',
+          transition: 'all 120ms',
+        }}>
           UNLOCK PRO — $9
-        </div>
-        <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.18)', letterSpacing: '0.08em', fontFamily: '"IBM Plex Mono", monospace' }}>
-          one-time · lifetime access
+        </button>
+        <div style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.20)', letterSpacing: '0.08em', fontFamily: '"IBM Plex Mono", monospace' }}>
+          one-time · lifetime · all features
         </div>
       </div>
     </div>
