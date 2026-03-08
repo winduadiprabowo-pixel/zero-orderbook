@@ -1,7 +1,6 @@
 /**
- * OrderBook.tsx — ZERØ ORDER BOOK v60
- * FIX: Ask side terpotong — both ask/bid containers now flex:1 + minHeight:0
- * heatmap intensity, electric colors, virtual list, flash via DOM classList
+ * OrderBook.tsx — ZERØ ORDER BOOK v63
+ * v63: Skeleton shimmer saat connecting (bids/asks kosong)
  * rgba() only ✓ · React.memo ✓ · displayName ✓
  */
 
@@ -9,6 +8,7 @@ import React, { useMemo, useRef, useCallback, useState, useEffect } from 'react'
 import type { Precision } from '@/types/market';
 import type { OrderBookLevel2 } from '@/hooks/useOrderBook';
 import { formatSize } from '@/lib/formatters';
+import { SkeletonOrderBook } from './Skeleton';
 
 const ROW_H = 18; // px — fixed row height for virtual list
 
@@ -112,8 +112,12 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
   precisionOptions = DEFAULT_PRECISION_OPTIONS,
   compact = false, levels = 20,
 }) => {
-  const displayAsks = useMemo(() => asks.slice(0, levels), [asks, levels]);
-  const displayBids = useMemo(() => bids.slice(0, levels), [bids, levels]);
+  // v63: collapsible depth — compact mode has toggle (mobile)
+  const [collapsed, setCollapsed] = useState(false);
+  const visibleLevels = compact && collapsed ? 8 : levels;
+
+  const displayAsks = useMemo(() => asks.slice(0, visibleLevels), [asks, visibleLevels]);
+  const displayBids = useMemo(() => bids.slice(0, visibleLevels), [bids, visibleLevels]);
 
   const maxTotal = useMemo(() => {
     const a = displayAsks.length ? displayAsks[displayAsks.length - 1]?.total ?? 0 : 0;
@@ -159,7 +163,26 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
         background: 'rgba(9,11,18,1)',
       }}>
         <span className="label-sm">ORDER BOOK</span>
-        <div style={{ display: 'flex', gap: '1px' }}>
+        <div style={{ display: 'flex', gap: '1px', alignItems: 'center' }}>
+          {/* v63: collapse toggle — mobile compact mode only */}
+          {compact && (
+            <button
+              onClick={() => setCollapsed((c) => !c)}
+              aria-label={collapsed ? 'Show more levels' : 'Show fewer levels'}
+              className="compact-btn"
+              style={{
+                padding: '2px 7px', fontSize: '9px', fontWeight: 700,
+                fontFamily: 'inherit', cursor: 'pointer',
+                borderRadius: '2px', border: '1px solid rgba(255,255,255,0.10)',
+                background: collapsed ? 'rgba(242,142,44,0.10)' : 'transparent',
+                color: collapsed ? 'rgba(242,142,44,0.80)' : 'rgba(255,255,255,0.25)',
+                letterSpacing: '0.04em', marginRight: '4px',
+                transition: 'all 100ms',
+              }}
+            >
+              {collapsed ? '▼ 8' : '▲ 20'}
+            </button>
+          )}
           {precisionOptions.map((p) => (
             <button
               key={p}
@@ -180,28 +203,46 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
 
       <ColHeader compact={compact} />
 
-      {/* ASKS — reversed (lowest ask nearest spread), flex:1 half */}
-      <VirtualList
-        rows={[...displayAsks].reverse()}
-        side="ask"
-        maxTotal={maxTotal}
-        maxSize={maxSize}
-        decimals={decimals}
-        compact={compact}
-        justify="flex-end"
-      />
+      {/* v63: Skeleton saat pertama connect — bids/asks belum ada */}
+      {bids.length === 0 && asks.length === 0 ? (
+        <>
+          <SkeletonOrderBook rows={12} compact={compact} />
+          <div style={{ height: '29px', background: 'rgba(9,11,18,1)', flexShrink: 0,
+            borderTop: '1px solid rgba(255,255,255,0.055)', borderBottom: '1px solid rgba(255,255,255,0.055)',
+            display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px',
+          }}>
+            <div className="skeleton-shimmer" style={{ width: '90px', height: '9px', borderRadius: 3 }} />
+            <div style={{ flex: 1 }} />
+            <div className="skeleton-shimmer" style={{ width: '50px', height: '9px', borderRadius: 3 }} />
+          </div>
+          <SkeletonOrderBook rows={12} compact={compact} />
+        </>
+      ) : (
+        <>
+          {/* ASKS — reversed (lowest ask nearest spread), flex:1 half */}
+          <VirtualList
+            rows={[...displayAsks].reverse()}
+            side="ask"
+            maxTotal={maxTotal}
+            maxSize={maxSize}
+            decimals={decimals}
+            compact={compact}
+            justify="flex-end"
+          />
 
-      <MidPriceRow midPrice={midPrice} midDirection={midDirection} spread={spread} decimals={decimals} />
+          <MidPriceRow midPrice={midPrice} midDirection={midDirection} spread={spread} decimals={decimals} />
 
-      {/* BIDS — flex:1 half */}
-      <VirtualList
-        rows={displayBids}
-        side="bid"
-        maxTotal={maxTotal}
-        maxSize={maxSize}
-        decimals={decimals}
-        compact={compact}
-      />
+          {/* BIDS — flex:1 half */}
+          <VirtualList
+            rows={displayBids}
+            side="bid"
+            maxTotal={maxTotal}
+            maxSize={maxSize}
+            decimals={decimals}
+            compact={compact}
+          />
+        </>
+      )}
 
       <PressureBar bidPercent={bidPressure} />
     </div>
