@@ -47,11 +47,26 @@ import {
 } from '@/types/market';
 
 // ── Mobile tabs ───────────────────────────────────────────────────────────────
+// v74: 8 tabs → 6 primary + "More" sheet (CVD + Liqs hidden to fix nav overflow)
 
 type MobileTab = 'home' | 'markets' | 'chart' | 'book' | 'depth' | 'trades' | 'cvd' | 'liqs';
 
+const PRIMARY_TABS: { id: MobileTab; label: string }[] = [
+  { id: 'home',    label: 'Home'    },
+  { id: 'markets', label: 'Markets' },
+  { id: 'chart',   label: 'Chart'   },
+  { id: 'book',    label: 'Book'    },
+  { id: 'depth',   label: 'Depth'   },
+  { id: 'trades',  label: 'Trades'  },
+];
+
+const MORE_TABS: { id: MobileTab; label: string }[] = [
+  { id: 'cvd',  label: 'CVD'  },
+  { id: 'liqs', label: 'Liqs' },
+];
+
 // SVG icons — no emoji, no unicode garbage
-const TAB_ICONS: Record<MobileTab, React.ReactNode> = {
+const TAB_ICONS: Record<MobileTab | 'more', React.ReactNode> = {
   home: (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
       <path d="M3 9.5L10 3L17 9.5V17H13V13H7V17H3V9.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="none"/>
@@ -111,17 +126,18 @@ const TAB_ICONS: Record<MobileTab, React.ReactNode> = {
       <path d="M10 2 L13 7.5 L18.5 8.5 L14.5 12.5 L15.5 18 L10 15.2 L4.5 18 L5.5 12.5 L1.5 8.5 L7 7.5 Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="none"/>
     </svg>
   ),
+  more: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <circle cx="5"  cy="10" r="1.8" fill="currentColor"/>
+      <circle cx="10" cy="10" r="1.8" fill="currentColor"/>
+      <circle cx="15" cy="10" r="1.8" fill="currentColor"/>
+    </svg>
+  ),
 };
 
+// Keep MOBILE_TABS for backward compat (used in content display logic below)
 const MOBILE_TABS: { id: MobileTab; label: string }[] = [
-  { id: 'home',    label: 'Home'    },
-  { id: 'markets', label: 'Markets' },
-  { id: 'chart',   label: 'Chart'   },
-  { id: 'book',    label: 'Book'    },
-  { id: 'depth',   label: 'Depth'   },
-  { id: 'trades',  label: 'Trades'  },
-  { id: 'cvd',     label: 'CVD'     },
-  { id: 'liqs',    label: 'Liqs'    },
+  ...PRIMARY_TABS, ...MORE_TABS,
 ];
 
 type TabletBottomTab = 'depth' | 'stats' | 'liqs';
@@ -144,10 +160,10 @@ function getPrecisionOptions(priceDec: number): Precision[] {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 const MobileTabBtn: React.FC<{
-  tab: typeof MOBILE_TABS[number]; active: boolean; onClick: () => void;
-}> = React.memo(({ tab, active, onClick }) => (
+  id: MobileTab | 'more'; label: string; active: boolean; onClick: () => void;
+}> = React.memo(({ id, label, active, onClick }) => (
   <button
-    aria-label={tab.label}
+    aria-label={label}
     onClick={onClick}
     style={{
       flex: 1, display: 'flex', flexDirection: 'column',
@@ -164,15 +180,64 @@ const MobileTabBtn: React.FC<{
     }}
   >
     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20 }}>
-      {TAB_ICONS[tab.id]}
+      {TAB_ICONS[id]}
     </span>
-    <span style={{
-      fontSize: '9px', fontWeight: 600, letterSpacing: '0.04em',
-      lineHeight: 1,
-    }}>{tab.label}</span>
+    <span style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.04em', lineHeight: 1 }}>
+      {label}
+    </span>
   </button>
 ));
 MobileTabBtn.displayName = 'MobileTabBtn';
+
+// "More" bottom sheet — CVD + Liqs
+const MoreSheet: React.FC<{
+  activeTab: MobileTab;
+  onSelect: (t: MobileTab) => void;
+  onClose: () => void;
+}> = React.memo(({ activeTab, onSelect, onClose }) => (
+  <>
+    {/* backdrop */}
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,0.55)' }}
+    />
+    {/* sheet */}
+    <div style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 401,
+      background: 'rgba(9,11,18,1)',
+      borderTop: '1px solid rgba(255,255,255,0.10)',
+      borderRadius: '16px 16px 0 0',
+      padding: '8px 16px 32px',
+      fontFamily: '"IBM Plex Mono", monospace',
+    }}>
+      {/* drag handle */}
+      <div style={{ width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.15)', margin: '8px auto 16px' }} />
+      <div style={{ fontSize: 10, letterSpacing: 2, color: 'rgba(255,255,255,0.25)', marginBottom: 12 }}>MORE TOOLS</div>
+      {MORE_TABS.map(t => (
+        <button
+          key={t.id}
+          onClick={() => { onSelect(t.id); onClose(); }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 14,
+            width: '100%', padding: '14px 12px',
+            background: activeTab === t.id ? 'rgba(242,162,33,0.08)' : 'transparent',
+            border: 'none', borderRadius: 10, cursor: 'pointer',
+            color: activeTab === t.id ? 'rgba(242,162,33,1)' : 'rgba(255,255,255,0.75)',
+            fontFamily: 'inherit', fontSize: 14, fontWeight: 600,
+            WebkitTapHighlightColor: 'transparent',
+            marginBottom: 4,
+          }}
+        >
+          <span style={{ width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            {TAB_ICONS[t.id]}
+          </span>
+          {t.label}
+        </button>
+      ))}
+    </div>
+  </>
+));
+MoreSheet.displayName = 'MoreSheet';
 
 const ConnectionBanner: React.FC<{
   status: ConnectionStatus; onRetry: () => void;
@@ -635,6 +700,7 @@ const Index: React.FC = () => {
   });
   const [precision,     setPrecision]     = useState<Precision>('0.01');
   const [mobileTab,     setMobileTab]     = useState<MobileTab>('home');
+  const [showMore,      setShowMore]      = useState(false);
   const [tabletBottom,  setTabletBottom]  = useState<TabletBottomTab>('depth');
   const [showMarkets,   setShowMarkets]   = useState(false);
   // v66: orderbook hover → chart price line sync
@@ -1057,6 +1123,7 @@ const Index: React.FC = () => {
 
         {mobileTab === 'book' && <PressureBar bidPercent={bidPressure} />}
 
+        {/* v74: 6 primary tabs + More sheet (CVD + Liqs) — fixes nav overflow/clipping */}
         <div style={{
           display: 'flex',
           borderTop: '1px solid rgba(255,255,255,0.08)',
@@ -1064,15 +1131,32 @@ const Index: React.FC = () => {
           paddingBottom: 'max(env(safe-area-inset-bottom), 4px)',
           flexShrink: 0,
         }} className="mobile-nav-bar">
-          {MOBILE_TABS.map((tab) => (
+          {PRIMARY_TABS.map((tab) => (
             <MobileTabBtn
               key={tab.id}
-              tab={tab}
+              id={tab.id}
+              label={tab.label}
               active={mobileTab === tab.id}
-              onClick={() => setMobileTab(tab.id)}
+              onClick={() => { setMobileTab(tab.id); setShowMore(false); }}
             />
           ))}
+          {/* More button — active if current tab is CVD or Liqs */}
+          <MobileTabBtn
+            id="more"
+            label="More"
+            active={MORE_TABS.some(t => t.id === mobileTab)}
+            onClick={() => setShowMore(v => !v)}
+          />
         </div>
+
+        {/* More sheet */}
+        {showMore && (
+          <MoreSheet
+            activeTab={mobileTab}
+            onSelect={(t) => { setMobileTab(t); }}
+            onClose={() => setShowMore(false)}
+          />
+        )}
       </div>
 
       {/* Symbol Search Modal — desktop/tablet pair selector */}
