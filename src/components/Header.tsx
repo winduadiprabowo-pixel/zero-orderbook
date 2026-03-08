@@ -25,12 +25,13 @@ interface HeaderProps {
   latencyMs:        number | null;
   exchange:         ExchangeId;
   onExchangeChange: (ex: ExchangeId) => void;
+  isStale?:         boolean; // v63c: showing cached snapshot
 }
 
 const Header: React.FC<HeaderProps> = React.memo(({
   activeSymbol, symbolInfo, onOpenMarkets, onOpenPro,
   status, lastUpdate, ticker, globalStats, latencyMs,
-  exchange, onExchangeChange,
+  exchange, onExchangeChange, isStale = false,
 }) => {
   const statusColor = useMemo(() => {
     if (status === 'connected')    return 'rgba(0,255,157,1)';
@@ -240,6 +241,18 @@ const Header: React.FC<HeaderProps> = React.memo(({
             <span style={{ fontSize: '9px', fontWeight: 700, color: statusColor, letterSpacing: '0.10em' }}>
               {statusLabel}
             </span>
+            {/* v63c: CACHED badge — visible while showing snapshot, fades when live */}
+            {isStale && (
+              <span style={{
+                fontSize: '8px', fontWeight: 700, letterSpacing: '0.06em',
+                padding: '1px 5px', borderRadius: '2px',
+                background: 'rgba(242,142,44,0.12)',
+                border: '1px solid rgba(242,142,44,0.30)',
+                color: 'rgba(242,142,44,0.70)',
+              }}>
+                CACHED
+              </span>
+            )}
             {timeStr && (
               <span className="header-timestamp" style={{
                 fontSize: '9px', color: 'rgba(255,255,255,0.14)', letterSpacing: '0.04em',
