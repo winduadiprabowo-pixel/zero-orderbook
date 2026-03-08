@@ -80,6 +80,10 @@ async function handleWebSocket(request, url) {
     const category = url.pathname.slice(7);
     if (!category) return new Response('Missing Bybit category', { status: 400 });
     targetUrl = 'wss://stream.bybit.com/v5/public/' + category;
+  } else if (url.pathname.startsWith('/coinbase')) {
+    // v68: Coinbase Advanced Trade WS proxy — bypass ISP block ID
+    // /coinbase → wss://advanced-trade-ws.coinbase.com/
+    targetUrl = 'wss://advanced-trade-ws.coinbase.com/';
   } else {
     return new Response('Unknown WS route', { status: 404 });
   }
