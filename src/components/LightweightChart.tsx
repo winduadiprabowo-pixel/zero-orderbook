@@ -536,6 +536,12 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
   useEffect(() => {
     if (!chartReady) return;
     setCandlesLoaded(false); // v63: reset skeleton on symbol/interval change
+
+    // v65: clear old candle data immediately — no flash of previous symbol's candles
+    candleSerRef.current?.setData([]);
+    volSerRef.current?.setData([]);
+    candlesRef.current = [];
+
     const ac = new AbortController();
 
     (async () => {
