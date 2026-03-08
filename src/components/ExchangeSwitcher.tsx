@@ -1,8 +1,8 @@
 /**
- * ExchangeSwitcher.tsx — ZERØ ORDER BOOK v62
+ * ExchangeSwitcher.tsx — ZERØ ORDER BOOK v69
+ * v69: Coinbase → OKX
  * Desktop/Tablet (>767px): nama exchange only
- * Mobile (≤767px): SVG brand logo only — fixed width, no clip
- * FIX v62: Coinbase logo kepotong — minWidth per button, no overflow cut
+ * Mobile (≤767px): SVG brand logo only
  * rgba() only ✓ · React.memo ✓ · displayName ✓
  */
 import React from 'react';
@@ -34,19 +34,21 @@ const BinanceLogo: React.FC<{ color: string }> = ({ color }) => (
   </svg>
 );
 
-const CoinbaseLogo: React.FC<{ color: string }> = ({ color }) => (
+// OKX logo — simplified "O" mark
+const OkxLogo: React.FC<{ color: string }> = ({ color }) => (
   <svg width="16" height="16" viewBox="0 0 100 100" fill="none">
-    <circle cx="50" cy="50" r="46" fill={color} />
-    <circle cx="50" cy="50" r="27" fill="rgba(5,7,15,1)" />
-    <circle cx="50" cy="50" r="13" fill={color} />
-    <rect   x="50"  y="23" width="46" height="54" fill={color} />
+    <rect x="10" y="10" width="32" height="32" rx="6" fill={color} />
+    <rect x="58" y="10" width="32" height="32" rx="6" fill={color} />
+    <rect x="34" y="34" width="32" height="32" rx="6" fill={color} />
+    <rect x="10" y="58" width="32" height="32" rx="6" fill={color} />
+    <rect x="58" y="58" width="32" height="32" rx="6" fill={color} />
   </svg>
 );
 
 const LOGOS: Record<ExchangeId, React.FC<{ color: string }>> = {
-  bybit:    BybitLogo,
-  binance:  BinanceLogo,
-  coinbase: CoinbaseLogo,
+  bybit:   BybitLogo,
+  binance: BinanceLogo,
+  okx:     OkxLogo,
 };
 
 const ExchangeSwitcher: React.FC<ExchangeSwitcherProps> = React.memo(({ active, onChange }) => (
@@ -62,7 +64,6 @@ const ExchangeSwitcher: React.FC<ExchangeSwitcherProps> = React.memo(({ active, 
       const isActive = ex.id === active;
       const Logo = LOGOS[ex.id];
       const col = isActive ? ex.color : 'rgba(255,255,255,0.35)';
-
       return (
         <button
           key={ex.id}
@@ -80,7 +81,6 @@ const ExchangeSwitcher: React.FC<ExchangeSwitcherProps> = React.memo(({ active, 
             WebkitTapHighlightColor: 'transparent',
             outline: isActive ? `1px solid ${ex.color.replace('1)', '0.28)')}` : 'none',
             outlineOffset: '-1px',
-            // v62: guaranteed 32px square on mobile, text padding on desktop
             minHeight: '32px',
             minWidth: '32px',
             whiteSpace: 'nowrap',
@@ -98,7 +98,6 @@ const ExchangeSwitcher: React.FC<ExchangeSwitcherProps> = React.memo(({ active, 
         </button>
       );
     })}
-
     <style>{`
       .ex-logo { display: none; }
       .ex-name { display: inline; }
