@@ -472,7 +472,7 @@ const HomeDashboard = memo(({
       `}</style>
 
       <PullToRefresh onRefresh={handleRefresh}>
-        <div style={{ paddingBottom: 16, fontFamily: '"IBM Plex Mono", monospace' }}>
+        <div style={{ paddingBottom: 80, fontFamily: '"IBM Plex Mono", monospace' }}>
 
           {/* ── Market Pulse ── */}
           <section style={{ padding: '14px 16px 4px' }}>
