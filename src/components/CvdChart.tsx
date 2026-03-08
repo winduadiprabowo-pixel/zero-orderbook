@@ -11,6 +11,7 @@
  */
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import type { CvdPoint } from '@/hooks/useTrades';
+import { SkeletonCvd } from './Skeleton';
 
 interface CvdChartProps {
   points: CvdPoint[];
@@ -132,12 +133,7 @@ const CvdChart: React.FC<CvdChartProps> = React.memo(({ points }) => {
       {/* Chart */}
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
         {points.length < 2 ? (
-          <div style={{
-            height: '100%', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', color: 'rgba(255,255,255,0.16)', fontSize: '10px',
-          }}>
-            Accumulating trades...
-          </div>
+          <SkeletonCvd />
         ) : (
           <svg
             width={dims.w} height={dims.h}
