@@ -416,7 +416,78 @@ const MobileMarketList: React.FC<{
 });
 MobileMarketList.displayName = 'MobileMarketList';
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── PWA Install Banner ────────────────────────────────────────────────────────
+// v62: Shows "Add to Home Screen" on mobile browsers, hides in standalone mode
+
+const PwaInstallBanner: React.FC = React.memo(() => {
+  const [prompt, setPrompt] = React.useState<Event | null>(null);
+  const [dismissed, setDismissed] = React.useState(() => {
+    try { return localStorage.getItem('zero_pwa_dismissed') === '1'; } catch { return false; }
+  });
+
+  React.useEffect(() => {
+    const handler = (e: Event) => { e.preventDefault(); setPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  // Hide if already installed as PWA
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as unknown as Record<string,boolean>).standalone === true;
+
+  if (!prompt || dismissed || isStandalone) return null;
+
+  const install = async () => {
+    const p = prompt as unknown as { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
+    await p.prompt();
+    const { outcome } = await p.userChoice;
+    if (outcome === 'accepted' || outcome === 'dismissed') {
+      setDismissed(true);
+      try { localStorage.setItem('zero_pwa_dismissed', '1'); } catch {}
+    }
+  };
+
+  const dismiss = () => {
+    setDismissed(true);
+    try { localStorage.setItem('zero_pwa_dismissed', '1'); } catch {}
+  };
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '10px',
+      padding: '8px 14px', flexShrink: 0,
+      background: 'rgba(0,82,255,0.07)',
+      borderBottom: '1px solid rgba(0,82,255,0.18)',
+    }}>
+      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.70)', flex: 1 }}>
+        📲 Install ZERØ ORDER BOOK — faster, works offline
+      </span>
+      <button
+        onClick={install}
+        className="compact-btn"
+        style={{
+          padding: '5px 12px', border: '1px solid rgba(0,82,255,0.55)',
+          borderRadius: '4px', background: 'rgba(0,82,255,0.18)',
+          color: 'rgba(100,160,255,1)', cursor: 'pointer',
+          fontFamily: 'inherit', fontSize: '10px', fontWeight: 700,
+        }}
+      >
+        Install
+      </button>
+      <button
+        onClick={dismiss}
+        className="compact-btn"
+        style={{
+          padding: '4px 8px', border: 'none', background: 'transparent',
+          color: 'rgba(255,255,255,0.28)', cursor: 'pointer',
+          fontFamily: 'inherit', fontSize: '12px',
+        }}
+        aria-label="Dismiss install banner"
+      >×</button>
+    </div>
+  );
+});
+PwaInstallBanner.displayName = 'PwaInstallBanner';
 
 const Index: React.FC = () => {
   const { isPro, unlock }      = useProAccess();
@@ -623,6 +694,7 @@ const Index: React.FC = () => {
         onExchangeChange={handleExchangeChange}
       />
       <ConnectionBanner status={overallStatus} onRetry={obRetry} />
+      <PwaInstallBanner />
 
       {showProModal && (
         <LicenseModal onUnlock={handleUnlock} onClose={handleCloseProModal} />
