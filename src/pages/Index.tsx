@@ -625,6 +625,11 @@ const Index: React.FC = () => {
   const [mobileTab,     setMobileTab]     = useState<MobileTab>('markets');
   const [tabletBottom,  setTabletBottom]  = useState<TabletBottomTab>('depth');
   const [showMarkets,   setShowMarkets]   = useState(false);
+  // v66: orderbook hover → chart price line sync
+  const [hoveredPrice,  setHoveredPrice]  = useState<number | null>(null);
+  // v66: copy price toast
+  const [copyToast,     setCopyToast]     = useState<string | null>(null);
+  const copyToastRef = useRef<ReturnType<typeof setTimeout>>();
   const prevMidRef = useRef<number | null>(null);
 
   const { pairs, loading: pairsLoading, error: pairsError } = useMarketPairs();
@@ -725,6 +730,18 @@ const Index: React.FC = () => {
   const handlePrecisionChange = useCallback((p: Precision) => setPrecision(p), []);
   const handleOpenMarkets     = useCallback(() => setShowMarkets(true), []);
   const handleCloseMarkets    = useCallback(() => setShowMarkets(false), []);
+
+  // v66: price hover → chart line sync
+  const handlePriceHover = useCallback((price: number | null) => {
+    setHoveredPrice(price);
+  }, []);
+
+  // v66: price copy toast — auto-dismiss 1.5s
+  const handlePriceCopy = useCallback((price: number) => {
+    if (copyToastRef.current) clearTimeout(copyToastRef.current);
+    setCopyToast(price.toString());
+    copyToastRef.current = setTimeout(() => setCopyToast(null), 1500);
+  }, []);
   const handleOpenProModal    = useCallback(() => setShowProModal(true), []);
   const handleCloseProModal   = useCallback(() => setShowProModal(false), []);
   const handleUnlock          = useCallback((key: string) => { unlock(key); setShowProModal(false); }, [unlock]);
@@ -736,7 +753,7 @@ const Index: React.FC = () => {
   };
 
   // v64: useMemo panels — prevent re-create on every bids/asks WS frame
-  // chartPanel: only changes on symbol/interval/exchange/ticker/symbolInfo
+  // chartPanel: only changes on symbol/interval/exchange/ticker/symbolInfo/hoveredPrice
   const chartPanel = useMemo(() => (
     <LightweightChart
       symbol={wsSymbol}
@@ -745,8 +762,9 @@ const Index: React.FC = () => {
       ticker={ticker}
       symbolInfo={symbolInfo}
       exchange={exchange}
+      hoveredPrice={hoveredPrice}
     />
-  ), [wsSymbol, interval, handleIntervalChange, ticker, symbolInfo, exchange]);
+  ), [wsSymbol, interval, handleIntervalChange, ticker, symbolInfo, exchange, hoveredPrice]);
 
   // orderBookPanel: changes on bids/asks/mid/precision — fine to recreate on those
   const orderBookPanel = (levels: number) => (
@@ -756,6 +774,8 @@ const Index: React.FC = () => {
       precision={precision} onPrecisionChange={handlePrecisionChange}
       precisionOptions={precisionOptions}
       levels={levels}
+      onPriceHover={handlePriceHover}
+      onPriceCopy={handlePriceCopy}
     />
   );
 
@@ -825,6 +845,26 @@ const Index: React.FC = () => {
 
       {showProModal && (
         <LicenseModal onUnlock={handleUnlock} onClose={handleCloseProModal} />
+      )}
+
+      {/* v66: Copy price toast — bottom center, auto-dismiss 1.5s */}
+      {copyToast && (
+        <div style={{
+          position: 'fixed', bottom: '72px', left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9998, pointerEvents: 'none',
+          background: 'rgba(9,11,18,0.95)',
+          border: '1px solid rgba(255,255,255,0.10)',
+          borderRadius: '6px', padding: '7px 16px',
+          display: 'flex', alignItems: 'center', gap: '8px',
+          fontFamily: '"IBM Plex Mono", monospace',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          animation: 'slide-in-top 150ms ease-out',
+        }}>
+          <span style={{ fontSize: '10px', color: 'rgba(0,255,157,0.9)', fontWeight: 700 }}>✓</span>
+          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.70)', letterSpacing: '0.04em' }}>
+            {copyToast} copied
+          </span>
+        </div>
       )}
 
       {/* ══════════════════════════ DESKTOP ≥1280px ══════════════════════════ */}
