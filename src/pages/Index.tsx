@@ -639,6 +639,7 @@ const Index: React.FC = () => {
   const obStatus     = exData.status;
   const tickerStatus = exData.status;
   const latencyMs    = exData.latencyMs;
+  const isStale      = exData.isStale; // v63c: cached snapshot indicator
   const lastUpdate   = Date.now();
   const obRetry      = useCallback(() => {}, []);
 
@@ -783,6 +784,7 @@ const Index: React.FC = () => {
         ticker={ticker}
         globalStats={globalStats}
         latencyMs={latencyMs}
+        isStale={isStale}
         exchange={exchange}
         onExchangeChange={handleExchangeChange}
       />
