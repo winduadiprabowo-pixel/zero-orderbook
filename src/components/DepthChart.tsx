@@ -6,6 +6,7 @@
 
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import type { OrderBookLevel } from '@/types/market';
+import { SkeletonDepth } from './Skeleton';
 
 interface DepthChartProps {
   bids:     OrderBookLevel[];
@@ -143,14 +144,7 @@ const DepthChart: React.FC<DepthChartProps> = React.memo(({ bids, asks, midPrice
   }, [priceMin, priceMax, toX]);
 
   if (!bids.length || !asks.length) {
-    return (
-      <div ref={containerRef} style={{
-        height: '100%', display: 'flex', alignItems: 'center',
-        justifyContent: 'center', background: 'rgba(16,19,28,1)',
-      }}>
-        <span className="label-xs">Connecting...</span>
-      </div>
-    );
+    return <SkeletonDepth />;
   }
 
   const tooltipColor = tooltip?.side === 'bid' ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
