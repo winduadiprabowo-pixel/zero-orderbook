@@ -303,27 +303,66 @@ export function useMultiExchangeWs(
     }
   }, []);
 
-  const parseCoinbase = useCallback((
+  const parseOkx = useCallback((
     data: Record<string, unknown>,
     draft: Partial<ExchangeState>,
   ): void => {
-    const type = data.type as string | undefined;
-    if (type === 'snapshot') {
-      const bids = (data.bids as [string,string][]) ?? [];
-      const asks = (data.asks as [string,string][]) ?? [];
-      bidsMap.current = new Map(bids.map(([p, s]) => [p, parseFloat(s)]));
-      asksMap.current = new Map(asks.map(([p, s]) => [p, parseFloat(s)]));
-      draft.bids = mapToLevels(bidsMap.current, false, levelsRef.current);
-      draft.asks = mapToLevels(asksMap.current, true,  levelsRef.current);
-    }
-    if (type === 'l2update') {
-      const changes = (data.changes as [string,string,string][]) ?? [];
-      for (const [side, price, size] of changes) {
-        if (side === 'buy')  applyDelta(bidsMap.current, [[price, size]]);
-        if (side === 'sell') applyDelta(asksMap.current, [[price, size]]);
+    // OKX WS v5 format:
+    // { arg: { channel, instId }, action: 'snapshot'|'update', data: [{ bids:[[p,s,_,_]], asks:... }] }
+    // trades: { arg: { channel:'trades' }, data: [{ tradeId, px, sz, side:'buy'|'sell', ts }] }
+    // tickers: { arg: { channel:'tickers' }, data: [{ last, open24h, high24h, low24h, vol24h, volCcy24h }] }
+    const arg     = data.arg as Record<string, string> | undefined;
+    const channel = arg?.channel ?? '';
+    const action  = data.action  as string | undefined;
+    const rawData = data.data    as Record<string, unknown>[] | undefined;
+    if (!rawData?.length) return;
+
+    if (channel === 'books' || channel === 'books5') {
+      const d = rawData[0] as {
+        bids: [string, string, string, string][];
+        asks: [string, string, string, string][];
+      };
+      if (!d) return;
+      // OKX bids/asks: [price, size, liquidated_orders, orders_count]
+      if (action === 'snapshot') {
+        bidsMap.current = new Map(d.bids.map(([p, s]) => [p, parseFloat(s)]));
+        asksMap.current = new Map(d.asks.map(([p, s]) => [p, parseFloat(s)]));
+      } else { // update
+        applyDelta(bidsMap.current, d.bids.map(([p, s]) => [p, s] as [string, string]));
+        applyDelta(asksMap.current, d.asks.map(([p, s]) => [p, s] as [string, string]));
       }
       draft.bids = mapToLevels(bidsMap.current, false, levelsRef.current);
       draft.asks = mapToLevels(asksMap.current, true,  levelsRef.current);
+    }
+
+    if (channel === 'trades') {
+      const incoming: Trade[] = rawData.map((d) => ({
+        id:           d.tradeId as string,
+        time:         parseInt(d.ts as string),
+        price:        parseFloat(d.px as string),
+        size:         parseFloat(d.sz as string),
+        isBuyerMaker: (d.side as string) === 'sell',
+      }));
+      for (const t of incoming) {
+        cvdRef.current += t.isBuyerMaker ? -t.size : t.size;
+        cvdBuf.current.push({ time: t.time, cvd: cvdRef.current });
+      }
+      draft.trades    = incoming;
+      draft.cvdPoints = cvdBuf.current.toArray();
+    }
+
+    if (channel === 'tickers') {
+      const d = rawData[0] as Record<string, string>;
+      if (!d) return;
+      draft.ticker = {
+        lastPrice:          parseFloat(d.last),
+        priceChange:        parseFloat(d.last) - parseFloat(d.open24h),
+        priceChangePercent: ((parseFloat(d.last) - parseFloat(d.open24h)) / parseFloat(d.open24h)) * 100,
+        highPrice:          parseFloat(d.high24h),
+        lowPrice:           parseFloat(d.low24h),
+        volume:             parseFloat(d.vol24h),
+        quoteVolume:        parseFloat(d.volCcy24h),
+      };
     }
   }, []);
 
@@ -382,20 +421,25 @@ export function useMultiExchangeWs(
       }
     }
 
-    if (feed === 'coinbase') {
-      const type = data.type as string | undefined;
-      if (type === 'snapshot') {
+    if (feed === 'okx') {
+      const arg     = data.arg as Record<string, string> | undefined;
+      const channel = arg?.channel ?? '';
+      const action  = data.action  as string | undefined;
+      const rawData = data.data    as Record<string, unknown>[] | undefined;
+      if (!rawData?.length) return false;
+
+      if (channel === 'books' || channel === 'books5') {
+        const d = rawData[0] as { bids: [string,string,string,string][]; asks: [string,string,string,string][] };
         w.postMessage({
-          type: 'orderbook', exchange: 'coinbase', cbType: 'snapshot',
-          bids: data.bids, asks: data.asks, levels: levelsRef.current,
+          type: 'orderbook', exchange: 'okx',
+          action: action ?? 'update',
+          bids: d.bids, asks: d.asks,
+          levels: levelsRef.current,
         });
         return true;
       }
-      if (type === 'l2update') {
-        w.postMessage({
-          type: 'orderbook', exchange: 'coinbase', cbType: 'l2update',
-          changes: data.changes, levels: levelsRef.current,
-        });
+      if (channel === 'trades') {
+        w.postMessage({ type: 'trades', exchange: 'okx', trades: rawData });
         return true;
       }
     }
@@ -455,7 +499,7 @@ export function useMultiExchangeWs(
       const msg = data as Record<string, unknown>;
       if (feed === 'bybit')    parseBybit(msg, draft);
       if (feed === 'binance')  parseBinance(msg, draft);
-      if (feed === 'coinbase') parseCoinbase(msg, draft);
+      if (feed === 'okx') parseOkx(msg, draft);
 
       const ts = (msg.ts as number) ||
         (msg.data && Array.isArray(msg.data) && (msg.data[0] as Record<string,number>)?.T) ||
@@ -513,7 +557,7 @@ export function useMultiExchangeWs(
       }
       return next;
     });
-  }, [parseBybit, parseBinance, parseCoinbase, computeLatency]);
+  }, [parseBybit, parseBinance, parseOkx, computeLatency]);
 
   // ── Generic WS connect ─────────────────────────────────────────────────────
   const connectWs = useCallback((
@@ -597,7 +641,7 @@ export function useMultiExchangeWs(
             const tickerDraft: Partial<ExchangeState> = {};
             if (feed === 'bybit')    parseBybit(data, tickerDraft);
             if (feed === 'binance')  parseBinance(data, tickerDraft);
-            if (feed === 'coinbase') parseCoinbase(data, tickerDraft);
+            if (feed === 'okx') parseOkx(data, tickerDraft);
             if (tickerDraft.ticker) {
               tickerDraftRef.current = tickerDraft;
               if (!rafRef.current) rafRef.current = requestAnimationFrame(flushTicker);
@@ -626,7 +670,7 @@ export function useMultiExchangeWs(
     };
 
     ws.onerror = () => ws.close();
-  }, [flushQueue, flushTicker, setStatus, routeToWorker, parseBybit, parseBinance, parseCoinbase, computeLatency]);
+  }, [flushQueue, flushTicker, setStatus, routeToWorker, parseBybit, parseBinance, parseOkx, computeLatency]);
 
   // ── Main connect ───────────────────────────────────────────────────────────
   const connectRef = useRef<() => void>(() => {});
@@ -664,10 +708,10 @@ export function useMultiExchangeWs(
     } else if (exch === 'binance') {
       connectWs('binance', getBinanceCombinedUrl(sym), {}, false);
 
-    } else if (exch === 'coinbase') {
-      const url    = getWsUrl('coinbase', sym);
-      const subMsg = getSubscribeMsg('coinbase', sym);
-      connectWs('coinbase', url, subMsg, false);
+    } else if (exch === 'okx') {
+      const url    = getWsUrl('okx', sym);
+      const subMsg = getSubscribeMsg('okx', sym);
+      connectWs('okx', url, subMsg, false);
     }
   }, [connectWs, setStatus]);
 
