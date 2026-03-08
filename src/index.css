@@ -272,10 +272,16 @@ button:focus-visible {
 @media (max-width: 767px) {
   .desktop-only { display: none !important; }
 
-  /* Larger tap targets on mobile */
-  button, [role="button"] {
-    min-height: 36px;
-    min-width: 36px;
+  /* v62: 48px minimum tap target — Google Play Store / Apple HIG standard */
+  button, [role="button"], a {
+    min-height: 48px;
+    min-width: 48px;
+  }
+
+  /* Exception: small inline controls inside panels */
+  .compact-btn {
+    min-height: 28px !important;
+    min-width: 28px !important;
   }
 
   /* Mobile bottom nav safe area */
@@ -287,6 +293,16 @@ button:focus-visible {
   .lw-chart-mobile .tv-lightweight-charts {
     font-size: 9px !important;
   }
+}
+
+/* ── v62: PWA standalone mode — extra top padding for notch ── */
+@media (display-mode: standalone) {
+  body {
+    padding-top: max(var(--safe-top), 0px);
+  }
+  /* Hide browser chrome affordances */
+  .pwa-only { display: flex !important; }
+  .browser-only { display: none !important; }
 }
 
 /* ── v48: Tablet breakpoints ── */
