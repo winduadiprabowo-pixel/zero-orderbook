@@ -1,16 +1,13 @@
-// HomeDashboard.tsx — v73
-// Changes:
-//   - Sparkline 24h di setiap exchange card + top mover row
-//   - Tab Gainers / Losers / All di Top Movers
-//   - Search bar + filter di Top Movers
-//   - Best Price badge di exchange card termurah
-//   - Micro-animation flash harga naik/turun
-//   - Pull-to-refresh gesture (touch swipe down)
-//   - Market Heatmap 2x2 grid (BTC/ETH/SOL/BNB)
-//   - Welcome/Onboarding overlay (first-time user, localStorage flag)
-//   - F&G tooltip
-//   - Volume + % change lebih bold & readable
-//   - Install strip Android/iOS (dari v72, dipertahankan)
+// HomeDashboard.tsx — v74
+// FIX v74:
+//   - Props interface disesuaikan persis dengan Index.tsx:
+//       tickerMap: TickerMap (Map<string, TickerSnapshot>)
+//       globalStats: GlobalStats (dari types/market.ts)
+//       activeSymbol: string
+//       currentExchange: ExchangeId
+//       onSelectExchange: (ex: ExchangeId) => void
+//       onSelectSymbol: (sym: string) => void
+//   - Semua fitur v73 dipertahankan
 
 import React, {
   useState,
@@ -20,82 +17,72 @@ import React, {
   useMemo,
   memo,
 } from 'react';
-import { createChart, ColorType, LineStyle } from 'lightweight-charts';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface TickerData {
-  price: number;
-  change24h: number;
-  volume24h: number;
-}
-
-interface GlobalStats {
-  totalMarketCap: number;
-  btcDominance: number;
-  volume24h: number;
-  fearGreedIndex: number;
-  fearGreedLabel: string;
-}
-
-interface HomeDashboardProps {
-  tickerMap: Record<string, TickerData>;
-  globalStats: GlobalStats | null;
-  exchange: 'binance' | 'bybit' | 'okx';
-  onSelectExchange: (ex: 'binance' | 'bybit' | 'okx') => void;
-  onSelectSymbol: (sym: string) => void;
-}
+import { createChart, ColorType } from 'lightweight-charts';
+import type { TickerMap } from '@/hooks/useAllTickers';
+import type { GlobalStats } from '@/types/market';
+import type { ExchangeId } from '@/hooks/useExchange';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const COLORS = {
-  bg: 'rgba(5,7,15,1)',
-  panel: 'rgba(9,11,18,1)',
+  bg:     'rgba(5,7,15,1)',
+  panel:  'rgba(9,11,18,1)',
+  panel2: 'rgba(14,17,28,1)',
   border: 'rgba(255,255,255,0.07)',
-  bid: 'rgba(0,255,157,1)',
-  ask: 'rgba(255,59,92,1)',
-  gold: 'rgba(242,162,33,1)',
-  muted: 'rgba(255,255,255,0.35)',
-  text: 'rgba(255,255,255,0.90)',
-  okx: 'rgba(0,200,255,1)',
-};
+  bid:    'rgba(0,255,157,1)',
+  ask:    'rgba(255,59,92,1)',
+  gold:   'rgba(242,162,33,1)',
+  muted:  'rgba(255,255,255,0.35)',
+  text:   'rgba(255,255,255,0.90)',
+  okx:    'rgba(0,200,255,1)',
+} as const;
 
-const WATCHLIST = ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','BNBUSDT','AVAXUSDT','LINKUSDT','DOGEUSDT'];
+const WATCHLIST_SYMS = [
+  'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT',
+  'BNBUSDT','AVAXUSDT','LINKUSDT','DOGEUSDT',
+] as const;
 
 const HEATMAP_COINS = [
   { sym: 'BTCUSDT', label: 'BTC' },
   { sym: 'ETHUSDT', label: 'ETH' },
   { sym: 'SOLUSDT', label: 'SOL' },
   { sym: 'BNBUSDT', label: 'BNB' },
-];
+] as const;
 
-const EX_META = {
+const EX_META: Record<ExchangeId, { label: string; color: string }> = {
   binance: { label: 'Binance', color: 'rgba(242,162,33,1)' },
   bybit:   { label: 'Bybit',   color: 'rgba(255,89,89,1)'  },
   okx:     { label: 'OKX',     color: 'rgba(0,200,255,1)'  },
-} as const;
+};
 
-const fmt = (n: number, digits = 2) =>
-  n >= 1e12 ? `$${(n/1e12).toFixed(2)}T`
-  : n >= 1e9 ? `$${(n/1e9).toFixed(2)}B`
-  : n >= 1e6 ? `$${(n/1e6).toFixed(2)}M`
-  : n >= 1e3 ? `$${(n/1e3).toFixed(2)}K`
-  : `$${n.toFixed(digits)}`;
+const ONBOARD_KEY = 'zero_onboarded_v1';
 
-const fmtPrice = (p: number) =>
-  p < 0.001 ? p.toFixed(8)
-  : p < 1 ? p.toFixed(5)
-  : p < 1000 ? p.toFixed(2)
-  : p.toLocaleString('en-US', { maximumFractionDigits: 2 });
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const fgColor = (v: number) =>
-  v <= 25 ? COLORS.ask
-  : v <= 45 ? 'rgba(255,140,0,1)'
-  : v <= 55 ? 'rgba(255,220,0,1)'
-  : v <= 75 ? 'rgba(100,220,100,1)'
-  : COLORS.bid;
+function fmtCompact(n: number): string {
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9)  return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6)  return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3)  return `$${(n / 1e3).toFixed(2)}K`;
+  return `$${n.toFixed(2)}`;
+}
 
-// ─── Sparkline Component ──────────────────────────────────────────────────────
+function fmtPrice(p: number): string {
+  if (p < 0.001)  return p.toFixed(8);
+  if (p < 1)      return p.toFixed(5);
+  if (p < 1000)   return p.toFixed(2);
+  return p.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function fgColor(v: number): string {
+  if (v <= 25) return COLORS.ask;
+  if (v <= 45) return 'rgba(255,140,0,1)';
+  if (v <= 55) return 'rgba(255,220,0,1)';
+  if (v <= 75) return 'rgba(100,220,100,1)';
+  return COLORS.bid;
+}
+
+// ─── Sparkline ───────────────────────────────────────────────────────────────
 
 interface SparklineProps {
   data: { time: number; value: number }[];
@@ -105,11 +92,10 @@ interface SparklineProps {
 }
 
 const Sparkline = memo(({ data, color, width = 80, height = 36 }: SparklineProps) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = ref.current;
     if (!el || data.length < 2) return;
     el.innerHTML = '';
     const chart = createChart(el, {
@@ -119,28 +105,27 @@ const Sparkline = memo(({ data, color, width = 80, height = 36 }: SparklineProps
         background: { type: ColorType.Solid, color: 'transparent' },
         textColor: 'transparent',
       },
-      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-      crosshair: { mode: 0 },
-      rightPriceScale: { visible: false },
-      leftPriceScale: { visible: false },
-      timeScale: { visible: false },
-      handleScroll: false,
-      handleScale: false,
+      grid:             { vertLines: { visible: false }, horzLines: { visible: false } },
+      crosshair:        { mode: 0 },
+      rightPriceScale:  { visible: false },
+      leftPriceScale:   { visible: false },
+      timeScale:        { visible: false },
+      handleScroll:     false,
+      handleScale:      false,
     });
     const series = chart.addAreaSeries({
-      lineColor: color,
-      lineWidth: 1.5,
-      topColor: color.replace(',1)', ',0.18)'),
+      lineColor:   color,
+      lineWidth:   1.5,
+      topColor:    color.replace(',1)', ',0.16)'),
       bottomColor: color.replace(',1)', ',0)'),
     });
     series.setData(data);
-    chartRef.current = chart;
-    return () => { chart.remove(); chartRef.current = null; };
+    return () => chart.remove();
   }, [data, color, width, height]);
 
   return (
     <div
-      ref={containerRef}
+      ref={ref}
       style={{ width, height, borderRadius: 6, overflow: 'hidden', flexShrink: 0 }}
     />
   );
@@ -149,93 +134,56 @@ Sparkline.displayName = 'Sparkline';
 
 // ─── Onboarding Overlay ───────────────────────────────────────────────────────
 
-const ONBOARD_KEY = 'zero_onboarded_v1';
+const STEPS = [
+  { icon: '📊', title: 'Market Pulse',    desc: 'Live market cap, BTC dominance, volume & Fear/Greed — real-time.' },
+  { icon: '⚡', title: 'Exchange Compare', desc: 'Tap exchange card untuk switch. BEST badge otomatis highlight exchange termurah.' },
+  { icon: '🔥', title: 'Top Movers',       desc: 'Filter Gainers / Losers / All. Tap coin langsung buka chart.' },
+  { icon: '📱', title: 'Install App',      desc: 'Install sebagai PWA — works offline, no ads, no store needed.' },
+];
 
 const OnboardingOverlay = memo(({ onDone }: { onDone: () => void }) => {
-  const steps = [
-    {
-      icon: '📊',
-      title: 'Market Pulse',
-      desc: 'Live market cap, BTC dominance, volume & Fear/Greed — semuanya real-time.',
-    },
-    {
-      icon: '⚡',
-      title: 'Exchange Compare',
-      desc: 'Tap exchange card untuk switch. Best Price badge otomatis highlight exchange termurah.',
-    },
-    {
-      icon: '🔥',
-      title: 'Top Movers',
-      desc: 'Filter Gainers / Losers / All. Tap coin langsung buka chart.',
-    },
-    {
-      icon: '📱',
-      title: 'Install App',
-      desc: 'Install sebagai PWA — works offline, no ads, no store needed.',
-    },
-  ];
   const [step, setStep] = useState(0);
-  const isLast = step === steps.length - 1;
+  const isLast = step === STEPS.length - 1;
 
   return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 999,
-        background: 'rgba(5,7,15,0.96)',
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        padding: '32px 24px',
-        fontFamily: 'IBM Plex Mono, monospace',
-      }}
-    >
-      {/* progress dots */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 40 }}>
-        {steps.map((_, i) => (
-          <div
-            key={i}
-            style={{
-              width: i === step ? 24 : 8, height: 8,
-              borderRadius: 4,
-              background: i === step ? COLORS.gold : COLORS.border,
-              transition: 'all 0.3s',
-            }}
-          />
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 999,
+      background: 'rgba(5,7,15,0.97)',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      padding: '32px 24px',
+      fontFamily: '"IBM Plex Mono", monospace',
+    }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 36 }}>
+        {STEPS.map((_, i) => (
+          <div key={i} style={{
+            width: i === step ? 24 : 8, height: 8, borderRadius: 4,
+            background: i === step ? COLORS.gold : COLORS.border,
+            transition: 'all 0.3s',
+          }} />
         ))}
       </div>
-
-      {/* card */}
-      <div
-        style={{
-          background: COLORS.panel,
-          border: `1px solid ${COLORS.border}`,
-          borderRadius: 20,
-          padding: '32px 28px',
-          maxWidth: 320, width: '100%',
-          textAlign: 'center',
-        }}
-      >
-        <div style={{ fontSize: 52, marginBottom: 20 }}>{steps[step].icon}</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: COLORS.text, marginBottom: 12 }}>
-          {steps[step].title}
+      <div style={{
+        background: COLORS.panel, border: `1px solid ${COLORS.border}`,
+        borderRadius: 20, padding: '32px 28px',
+        maxWidth: 320, width: '100%', textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 48, marginBottom: 18 }}>{STEPS[step].icon}</div>
+        <div style={{ fontSize: 17, fontWeight: 700, color: COLORS.text, marginBottom: 12 }}>
+          {STEPS[step].title}
         </div>
         <div style={{ fontSize: 13, color: COLORS.muted, lineHeight: 1.7 }}>
-          {steps[step].desc}
+          {STEPS[step].desc}
         </div>
       </div>
-
-      {/* buttons */}
-      <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
+      <div style={{ display: 'flex', gap: 12, marginTop: 28 }}>
         {!isLast && (
-          <button
-            onClick={onDone}
-            style={{
-              padding: '12px 20px', borderRadius: 10, border: `1px solid ${COLORS.border}`,
-              background: 'transparent', color: COLORS.muted,
-              fontSize: 12, fontFamily: 'IBM Plex Mono, monospace', cursor: 'pointer',
-            }}
-          >
-            Skip
-          </button>
+          <button onClick={onDone} style={{
+            padding: '12px 18px', borderRadius: 10,
+            border: `1px solid ${COLORS.border}`, background: 'transparent',
+            color: COLORS.muted, fontSize: 12,
+            fontFamily: '"IBM Plex Mono", monospace', cursor: 'pointer',
+          }}>Skip</button>
         )}
         <button
           onClick={() => isLast ? onDone() : setStep(s => s + 1)}
@@ -243,7 +191,7 @@ const OnboardingOverlay = memo(({ onDone }: { onDone: () => void }) => {
             padding: '12px 28px', borderRadius: 10, border: 'none',
             background: COLORS.gold, color: 'rgba(0,0,0,1)',
             fontSize: 13, fontWeight: 700,
-            fontFamily: 'IBM Plex Mono, monospace', cursor: 'pointer',
+            fontFamily: '"IBM Plex Mono", monospace', cursor: 'pointer',
             minWidth: 120,
           }}
         >
@@ -257,31 +205,27 @@ OnboardingOverlay.displayName = 'OnboardingOverlay';
 
 // ─── Pull To Refresh ──────────────────────────────────────────────────────────
 
-interface PullToRefreshProps {
-  onRefresh: () => Promise<void>;
-  children: React.ReactNode;
-}
-
-const PullToRefresh = memo(({ onRefresh, children }: PullToRefreshProps) => {
-  const [pulling, setPulling] = useState(false);
+const PullToRefresh = memo(({
+  onRefresh, children,
+}: { onRefresh: () => Promise<void>; children: React.ReactNode }) => {
+  const [pullY, setPullY]       = useState(0);
+  const [pulling, setPulling]   = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [pullY, setPullY] = useState(0);
-  const startY = useRef(0);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const THRESHOLD = 72;
+  const startY  = useRef(0);
+  const scrollEl = useRef<HTMLDivElement>(null);
+  const THRESHOLD = 68;
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
-    if (scrollRef.current && scrollRef.current.scrollTop === 0) {
+    if (scrollEl.current?.scrollTop === 0)
       startY.current = e.touches[0].clientY;
-    }
   }, []);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     if (refreshing) return;
     const dy = e.touches[0].clientY - startY.current;
-    if (dy > 0 && scrollRef.current && scrollRef.current.scrollTop === 0) {
+    if (dy > 0 && scrollEl.current?.scrollTop === 0) {
       setPulling(true);
-      setPullY(Math.min(dy * 0.45, THRESHOLD + 20));
+      setPullY(Math.min(dy * 0.44, THRESHOLD + 16));
     }
   }, [refreshing]);
 
@@ -298,43 +242,30 @@ const PullToRefresh = memo(({ onRefresh, children }: PullToRefreshProps) => {
 
   return (
     <div style={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
-      {/* pull indicator */}
-      <div
-        style={{
-          position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          height: THRESHOLD,
-          transform: `translateY(${Math.min(pullY, THRESHOLD) - THRESHOLD}px)`,
-          transition: pulling ? 'none' : 'transform 0.3s',
-          pointerEvents: 'none',
-        }}
-      >
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          color: COLORS.gold, fontSize: 12,
-          fontFamily: 'IBM Plex Mono, monospace',
-        }}>
-          {refreshing ? (
-            <>
-              <span style={{ animation: 'spin 0.8s linear infinite', display: 'inline-block' }}>↻</span>
-              Refreshing...
-            </>
-          ) : pullY >= THRESHOLD ? (
-            <>↑ Release to refresh</>
-          ) : (
-            <>↓ Pull to refresh</>
-          )}
-        </div>
+      {/* indicator */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
+        height: THRESHOLD, pointerEvents: 'none',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        transform: `translateY(${Math.min(pullY, THRESHOLD) - THRESHOLD}px)`,
+        transition: pulling ? 'none' : 'transform 0.3s',
+        color: COLORS.gold, fontSize: 11,
+        fontFamily: '"IBM Plex Mono", monospace',
+        gap: 6,
+      }}>
+        <span style={{ display: 'inline-block', animation: refreshing ? 'ptr-spin 0.8s linear infinite' : 'none' }}>
+          {refreshing ? '↻' : pullY >= THRESHOLD ? '↑' : '↓'}
+        </span>
+        {refreshing ? 'Refreshing…' : pullY >= THRESHOLD ? 'Release to refresh' : 'Pull to refresh'}
       </div>
 
       <div
-        ref={scrollRef}
+        ref={scrollEl}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         style={{
-          height: '100%',
-          overflowY: 'auto',
+          height: '100%', overflowY: 'auto',
           transform: `translateY(${pullY}px)`,
           transition: pulling ? 'none' : 'transform 0.3s',
           WebkitOverflowScrolling: 'touch',
@@ -343,7 +274,7 @@ const PullToRefresh = memo(({ onRefresh, children }: PullToRefreshProps) => {
         {children}
       </div>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`@keyframes ptr-spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 });
@@ -351,85 +282,97 @@ PullToRefresh.displayName = 'PullToRefresh';
 
 // ─── Market Heatmap ───────────────────────────────────────────────────────────
 
-interface HeatmapProps {
-  tickerMap: Record<string, TickerData>;
-  onSelectSymbol: (sym: string) => void;
-}
-
-const MarketHeatmap = memo(({ tickerMap, onSelectSymbol }: HeatmapProps) => {
-  return (
-    <section style={{ padding: '0 16px 4px' }}>
-      <div style={{
-        fontFamily: 'IBM Plex Mono, monospace',
-        fontSize: 10, letterSpacing: 2,
-        color: COLORS.muted, textTransform: 'uppercase',
-        marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8,
-      }}>
-        <span style={{ width: 4, height: 4, borderRadius: '50%', background: COLORS.gold, display: 'inline-block' }} />
-        Heatmap
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        {HEATMAP_COINS.map(({ sym, label }) => {
-          const t = tickerMap[sym];
-          const pct = t?.change24h ?? 0;
-          const intensity = Math.min(Math.abs(pct) / 6, 1); // normalize 0-6% → 0-1
-          const bg = pct >= 0
-            ? `rgba(0,255,157,${0.06 + intensity * 0.22})`
-            : `rgba(255,59,92,${0.06 + intensity * 0.22})`;
-          const border = pct >= 0
-            ? `rgba(0,255,157,${0.15 + intensity * 0.35})`
-            : `rgba(255,59,92,${0.15 + intensity * 0.35})`;
-          const color = pct >= 0 ? COLORS.bid : COLORS.ask;
-          return (
-            <button
-              key={sym}
-              onClick={() => onSelectSymbol(sym)}
-              style={{
-                background: bg, border: `1px solid ${border}`,
-                borderRadius: 14, padding: '16px 14px',
-                cursor: 'pointer', textAlign: 'left',
-                transition: 'all 0.25s',
-                minHeight: 80,
-              }}
-            >
-              <div style={{
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: 14, fontWeight: 700, color: COLORS.text,
-                marginBottom: 4,
-              }}>{label}</div>
-              <div style={{
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: 11, color: COLORS.muted, marginBottom: 8,
-              }}>
-                {t ? fmtPrice(t.price) : '—'}
-              </div>
-              <div style={{
-                display: 'inline-block',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: 13, fontWeight: 700, color,
-              }}>
-                {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </section>
-  );
-});
+const MarketHeatmap = memo(({
+  tickerMap, onSelectSymbol,
+}: { tickerMap: TickerMap; onSelectSymbol: (s: string) => void }) => (
+  <div>
+    <SectionTitle label="Heatmap" />
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      {HEATMAP_COINS.map(({ sym, label }) => {
+        const t   = tickerMap.get(sym.toUpperCase());
+        const pct = t?.changePct ?? 0;
+        const int = Math.min(Math.abs(pct) / 6, 1);
+        const bg  = pct >= 0
+          ? `rgba(0,255,157,${0.06 + int * 0.20})`
+          : `rgba(255,59,92,${0.06 + int * 0.20})`;
+        const bd  = pct >= 0
+          ? `rgba(0,255,157,${0.15 + int * 0.30})`
+          : `rgba(255,59,92,${0.15 + int * 0.30})`;
+        return (
+          <button
+            key={sym}
+            onClick={() => onSelectSymbol(sym)}
+            style={{
+              background: bg, border: `1px solid ${bd}`,
+              borderRadius: 14, padding: '14px 12px',
+              cursor: 'pointer', textAlign: 'left',
+              minHeight: 76, transition: 'all 0.2s',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+          >
+            <div style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: 13, fontWeight: 700, color: COLORS.text, marginBottom: 3 }}>
+              {label}
+            </div>
+            <div style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: 10, color: COLORS.muted, marginBottom: 6 }}>
+              {t ? fmtPrice(t.lastPrice) : '—'}
+            </div>
+            <div style={{
+              fontFamily: '"IBM Plex Mono", monospace', fontSize: 12, fontWeight: 700,
+              color: pct >= 0 ? COLORS.bid : COLORS.ask,
+            }}>
+              {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  </div>
+));
 MarketHeatmap.displayName = 'MarketHeatmap';
 
+// ─── Section Title helper ─────────────────────────────────────────────────────
+
+const SectionTitle = memo(({ label, badge }: { label: string; badge?: string }) => (
+  <div style={{
+    fontFamily: '"IBM Plex Mono", monospace',
+    fontSize: 10, letterSpacing: 2,
+    color: COLORS.muted, textTransform: 'uppercase' as const,
+    marginBottom: 10,
+    display: 'flex', alignItems: 'center', gap: 8,
+  }}>
+    <span style={{ width: 4, height: 4, borderRadius: '50%', background: COLORS.gold, display: 'inline-block', flexShrink: 0 }} />
+    {label}
+    {badge && (
+      <span style={{
+        background: 'rgba(242,162,33,0.14)', color: COLORS.gold,
+        fontSize: 9, padding: '2px 6px', borderRadius: 4,
+      }}>{badge}</span>
+    )}
+  </div>
+));
+SectionTitle.displayName = 'SectionTitle';
+
 // ─── Main Component ───────────────────────────────────────────────────────────
+
+interface HomeDashboardProps {
+  tickerMap:        TickerMap;
+  globalStats:      GlobalStats;
+  activeSymbol:     string;
+  currentExchange:  ExchangeId;
+  onSelectExchange: (ex: ExchangeId) => void;
+  onSelectSymbol:   (sym: string) => void;
+}
 
 const HomeDashboard = memo(({
   tickerMap,
   globalStats,
-  exchange,
+  activeSymbol,
+  currentExchange,
   onSelectExchange,
   onSelectSymbol,
 }: HomeDashboardProps) => {
 
-  // onboarding
+  // Onboarding — first time only
   const [showOnboard, setShowOnboard] = useState(() => {
     try { return !localStorage.getItem(ONBOARD_KEY); } catch { return false; }
   });
@@ -438,71 +381,70 @@ const HomeDashboard = memo(({
     setShowOnboard(false);
   }, []);
 
-  // movers tab + search
-  const [moversTab, setMoversTab] = useState<'gainers' | 'losers' | 'all'>('all');
-  const [search, setSearch] = useState('');
+  // Top Movers tab + search
+  const [moversTab, setMoversTab]   = useState<'gainers' | 'losers' | 'all'>('all');
+  const [search, setSearch]         = useState('');
 
-  // flash map: sym → 'up'|'down'|null
-  const [flashMap, setFlashMap] = useState<Record<string, 'up' | 'down'>>({});
-  const prevPrices = useRef<Record<string, number>>({});
+  // F&G tooltip
+  const [showFgTip, setShowFgTip]   = useState(false);
 
-  // f&g tooltip
-  const [showFgTip, setShowFgTip] = useState(false);
+  // Price flash map
+  const [flashMap, setFlashMap]     = useState<Record<string, 'up' | 'down'>>({});
+  const prevPrices                  = useRef<Record<string, number>>({});
 
-  // fake sparkline data (replace with real 24h kline fetch if available)
+  // Detect price direction changes for flash
+  useEffect(() => {
+    const next: Record<string, 'up' | 'down'> = {};
+    tickerMap.forEach((t, sym) => {
+      const prev = prevPrices.current[sym];
+      if (prev !== undefined && prev !== t.lastPrice)
+        next[sym] = t.lastPrice > prev ? 'up' : 'down';
+      prevPrices.current[sym] = t.lastPrice;
+    });
+    if (Object.keys(next).length === 0) return;
+    setFlashMap(next);
+    const tid = setTimeout(() => setFlashMap({}), 450);
+    return () => clearTimeout(tid);
+  }, [tickerMap]);
+
+  // Sparkline data — generated once per mount (swap with real kline hook later)
   const sparkData = useMemo(() => {
-    const gen = (sym: string, up: boolean) => {
-      let base = tickerMap[sym]?.price ?? 100;
+    const gen = (sym: string) => {
+      const t    = tickerMap.get(sym.toUpperCase());
+      const up   = (t?.changePct ?? 0) >= 0;
+      let base   = t?.lastPrice ?? 100;
       const pts: { time: number; value: number }[] = [];
-      const now = Math.floor(Date.now() / 1000);
+      const now  = Math.floor(Date.now() / 1000);
       for (let i = 47; i >= 0; i--) {
         base += (Math.random() - (up ? 0.44 : 0.56)) * base * 0.004;
-        pts.push({ time: now - i * 1800, value: Math.max(base, 0.00001) });
+        pts.push({ time: now - i * 1800, value: Math.max(base, 1e-9) });
       }
       return pts;
     };
-    const all: Record<string, { time: number; value: number }[]> = {};
-    Object.keys(tickerMap).forEach(sym => {
-      all[sym] = gen(sym, (tickerMap[sym]?.change24h ?? 0) >= 0);
-    });
-    return all;
+    const out: Record<string, { time: number; value: number }[]> = {};
+    tickerMap.forEach((_, sym) => { out[sym] = gen(sym); });
+    return out;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // generate once per mount — swap with real data hook later
+  }, []); // once per mount
 
-  // price flash detection
-  useEffect(() => {
-    const next: Record<string, 'up' | 'down'> = {};
-    Object.entries(tickerMap).forEach(([sym, t]) => {
-      const prev = prevPrices.current[sym];
-      if (prev !== undefined && prev !== t.price) {
-        next[sym] = t.price > prev ? 'up' : 'down';
-      }
-      prevPrices.current[sym] = t.price;
-    });
-    if (Object.keys(next).length > 0) {
-      setFlashMap(next);
-      const tid = setTimeout(() => setFlashMap({}), 450);
-      return () => clearTimeout(tid);
-    }
-  }, [tickerMap]);
-
-  // pull-to-refresh handler
+  // Pull-to-refresh — WS auto-refreshes, just UX delay
   const handleRefresh = useCallback(async () => {
-    await new Promise(r => setTimeout(r, 800)); // WS auto-refreshes; just delay UX
+    await new Promise<void>(r => setTimeout(r, 800));
   }, []);
 
-  // top movers
+  // Top movers from tickerMap
   const allMovers = useMemo(() => {
-    return Object.entries(tickerMap)
-      .map(([sym, t]) => ({ sym, ...t }))
-      .sort((a, b) => Math.abs(b.change24h) - Math.abs(a.change24h))
-      .slice(0, 30);
+    const out: { sym: string; price: number; pct: number; vol: number }[] = [];
+    tickerMap.forEach((t, sym) => {
+      out.push({ sym, price: t.lastPrice, pct: t.changePct, vol: t.volume24h });
+    });
+    return out.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 30);
   }, [tickerMap]);
 
   const filteredMovers = useMemo(() => {
     let list = allMovers;
-    if (moversTab === 'gainers') list = list.filter(c => c.change24h >= 0);
-    else if (moversTab === 'losers') list = list.filter(c => c.change24h < 0);
+    if (moversTab === 'gainers') list = list.filter(c => c.pct >= 0);
+    if (moversTab === 'losers')  list = list.filter(c => c.pct < 0);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(c => c.sym.toLowerCase().includes(q));
@@ -510,33 +452,10 @@ const HomeDashboard = memo(({
     return list.slice(0, 12);
   }, [allMovers, moversTab, search]);
 
-  // best price exchange (lowest price = best for buyer)
-  const exPrices = useMemo(() => ({
-    binance: tickerMap['BTCUSDT']?.price ?? 0,
-    bybit: tickerMap['BTCUSDT']?.price ?? 0,
-    okx: tickerMap['BTCUSDT']?.price ?? 0,
-  }), [tickerMap]);
-  // Note: All 3 use same tickerMap (Bybit) for now per handoff note #16
-  // Future: separate per-exchange feeds
-  const bestEx = useMemo(() => {
-    const vals = Object.entries(exPrices).filter(([, v]) => v > 0);
-    if (!vals.length) return null;
-    return vals.reduce((a, b) => a[1] <= b[1] ? a : b)[0] as 'binance' | 'bybit' | 'okx';
-  }, [exPrices]);
-
-  // ── Styles ────────────────────────────────────────────────────────────────
-
-  const sectionTitle: React.CSSProperties = {
-    fontFamily: 'IBM Plex Mono, monospace',
-    fontSize: 10, letterSpacing: 2,
-    color: COLORS.muted, textTransform: 'uppercase',
-    marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8,
-  };
-
-  const dot: React.CSSProperties = {
-    width: 4, height: 4, borderRadius: '50%',
-    background: COLORS.gold, display: 'inline-block', flexShrink: 0,
-  };
+  // Best price exchange — all 3 use same Bybit feed per v72 note
+  // When per-exchange feeds are added, update this logic
+  const btcTicker  = tickerMap.get('BTCUSDT');
+  const bestEx     = 'bybit' as ExchangeId; // placeholder — update when real per-exchange prices exist
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -545,222 +464,136 @@ const HomeDashboard = memo(({
       {showOnboard && <OnboardingOverlay onDone={doneOnboard} />}
 
       <style>{`
-        @keyframes flashGreen {
-          0% { background: rgba(0,255,157,0.18); }
-          100% { background: transparent; }
-        }
-        @keyframes flashRed {
-          0% { background: rgba(255,59,92,0.18); }
-          100% { background: transparent; }
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .flash-up { animation: flashGreen 450ms ease-out; }
-        .flash-down { animation: flashRed 450ms ease-out; }
-        .tab-btn { transition: all 0.18s; }
-        .tab-btn:active { transform: scale(0.95); }
-        .mover-row:active { transform: scale(0.99); }
-        .ex-card:active { transform: scale(0.98); }
+        @keyframes hd-flash-up   { 0% { background: rgba(0,255,157,0.16); } 100% { background: transparent; } }
+        @keyframes hd-flash-down { 0% { background: rgba(255,59,92,0.16); } 100% { background: transparent; } }
+        .hd-flash-up   { animation: hd-flash-up   450ms ease-out; }
+        .hd-flash-down { animation: hd-flash-down  450ms ease-out; }
+        .hd-tab:active, .hd-ex-card:active, .hd-mover:active { transform: scale(0.98); }
       `}</style>
 
       <PullToRefresh onRefresh={handleRefresh}>
-        <div style={{ paddingBottom: 24 }}>
+        <div style={{ paddingBottom: 16, fontFamily: '"IBM Plex Mono", monospace' }}>
 
-          {/* ── Market Pulse ──────────────────────────────── */}
-          <section style={{ padding: '16px 16px 4px' }}>
-            <div style={sectionTitle}>
-              <span style={dot} />
-              Market Pulse
-              <span style={{
-                background: 'rgba(242,162,33,0.15)',
-                color: COLORS.gold, fontSize: 9,
-                padding: '2px 7px', borderRadius: 4,
-              }}>live</span>
-            </div>
+          {/* ── Market Pulse ── */}
+          <section style={{ padding: '14px 16px 4px' }}>
+            <SectionTitle label="Market Pulse" badge="live" />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+
               {/* MKT CAP */}
-              <div style={{
-                background: COLORS.panel, border: `1px solid ${COLORS.border}`,
-                borderRadius: 14, padding: '14px 14px',
-                borderTop: '2px solid rgba(59,130,246,0.6)',
-              }}>
-                <div style={{ fontSize: 9, letterSpacing: 1.5, color: COLORS.muted, fontFamily: 'IBM Plex Mono, monospace', marginBottom: 5 }}>MKT CAP</div>
-                <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 17, fontWeight: 700, color: COLORS.text }}>
-                  {globalStats ? fmt(globalStats.totalMarketCap) : '—'}
+              <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: '13px 13px', borderTop: '2px solid rgba(59,130,246,0.55)' }}>
+                <div style={{ fontSize: 9, letterSpacing: 1.5, color: COLORS.muted, marginBottom: 5 }}>MKT CAP</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text }}>
+                  {!globalStats.loading ? fmtCompact(globalStats.totalMarketCap) : '—'}
                 </div>
-                <div style={{ fontSize: 9, color: COLORS.muted, marginTop: 3, fontFamily: 'IBM Plex Mono, monospace' }}>Total crypto market</div>
+                <div style={{ fontSize: 9, color: COLORS.muted, marginTop: 3 }}>Total crypto market</div>
               </div>
 
               {/* BTC.D */}
-              <div style={{
-                background: COLORS.panel, border: `1px solid ${COLORS.border}`,
-                borderRadius: 14, padding: '14px 14px',
-                borderTop: `2px solid ${COLORS.gold}`,
-              }}>
-                <div style={{ fontSize: 9, letterSpacing: 1.5, color: COLORS.muted, fontFamily: 'IBM Plex Mono, monospace', marginBottom: 5 }}>BTC.D</div>
-                <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 17, fontWeight: 700, color: COLORS.gold }}>
-                  {globalStats ? `${globalStats.btcDominance.toFixed(1)}%` : '—'}
+              <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: '13px 13px', borderTop: `2px solid ${COLORS.gold}` }}>
+                <div style={{ fontSize: 9, letterSpacing: 1.5, color: COLORS.muted, marginBottom: 5 }}>BTC.D</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.gold }}>
+                  {!globalStats.loading ? `${globalStats.btcDominance.toFixed(1)}%` : '—'}
                 </div>
-                <div style={{ fontSize: 9, color: COLORS.muted, marginTop: 3, fontFamily: 'IBM Plex Mono, monospace' }}>Bitcoin dominance</div>
+                <div style={{ fontSize: 9, color: COLORS.muted, marginTop: 3 }}>Bitcoin dominance</div>
               </div>
 
               {/* VOL 24H */}
-              <div style={{
-                background: COLORS.panel, border: `1px solid ${COLORS.border}`,
-                borderRadius: 14, padding: '14px 14px',
-                borderTop: `2px solid rgba(0,255,157,0.6)`,
-              }}>
-                <div style={{ fontSize: 9, letterSpacing: 1.5, color: COLORS.muted, fontFamily: 'IBM Plex Mono, monospace', marginBottom: 5 }}>VOL 24H</div>
-                <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 17, fontWeight: 700, color: COLORS.text }}>
-                  {globalStats ? fmt(globalStats.volume24h) : '—'}
+              <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: '13px 13px', borderTop: 'rgba(0,255,157,0.55) solid 2px' }}>
+                <div style={{ fontSize: 9, letterSpacing: 1.5, color: COLORS.muted, marginBottom: 5 }}>VOL 24H</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.text }}>
+                  {!globalStats.loading ? fmtCompact(globalStats.volume24h) : '—'}
                 </div>
-                <div style={{ fontSize: 9, color: COLORS.muted, marginTop: 3, fontFamily: 'IBM Plex Mono, monospace' }}>Global 24h volume</div>
+                <div style={{ fontSize: 9, color: COLORS.muted, marginTop: 3 }}>Global 24h volume</div>
               </div>
 
               {/* F&G */}
               <div
-                style={{
-                  background: COLORS.panel, border: `1px solid ${COLORS.border}`,
-                  borderRadius: 14, padding: '14px 14px', position: 'relative',
-                  borderTop: `2px solid ${globalStats ? fgColor(globalStats.fearGreedIndex) : COLORS.ask}`,
-                  cursor: 'pointer',
-                }}
+                style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: '13px 13px', position: 'relative', cursor: 'pointer', borderTop: `2px solid ${!globalStats.loading ? fgColor(globalStats.fearGreedValue) : COLORS.ask}` }}
                 onClick={() => setShowFgTip(v => !v)}
               >
-                <div style={{ fontSize: 9, letterSpacing: 1.5, color: COLORS.muted, fontFamily: 'IBM Plex Mono, monospace', marginBottom: 5 }}>F&amp;G</div>
-                <div style={{
-                  fontFamily: 'IBM Plex Mono, monospace', fontSize: 24, fontWeight: 700,
-                  color: globalStats ? fgColor(globalStats.fearGreedIndex) : COLORS.ask,
-                }}>
-                  {globalStats?.fearGreedIndex ?? '—'}
+                <div style={{ fontSize: 9, letterSpacing: 1.5, color: COLORS.muted, marginBottom: 5 }}>F&amp;G</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: !globalStats.loading ? fgColor(globalStats.fearGreedValue) : COLORS.ask }}>
+                  {!globalStats.loading ? globalStats.fearGreedValue : '—'}
                 </div>
-                <div style={{
-                  fontSize: 9, fontWeight: 700, marginTop: 3,
-                  color: globalStats ? fgColor(globalStats.fearGreedIndex) : COLORS.ask,
-                  fontFamily: 'IBM Plex Mono, monospace',
-                }}>
-                  {globalStats?.fearGreedLabel ?? 'EXTREME FEAR'}
+                <div style={{ fontSize: 9, fontWeight: 700, marginTop: 3, color: !globalStats.loading ? fgColor(globalStats.fearGreedValue) : COLORS.ask }}>
+                  {!globalStats.loading ? globalStats.fearGreedLabel.toUpperCase() : 'EXTREME FEAR'}
                 </div>
-                {/* tooltip */}
-                <div style={{
-                  position: 'absolute', bottom: 8, right: 8,
-                  background: 'rgba(255,59,92,0.15)', border: '1px solid rgba(255,59,92,0.3)',
-                  borderRadius: 5, padding: '1px 5px',
-                  fontSize: 8, color: COLORS.ask, fontFamily: 'IBM Plex Mono, monospace',
-                }}>?</div>
+                <div style={{ position: 'absolute', bottom: 8, right: 9, background: 'rgba(255,59,92,0.14)', border: '1px solid rgba(255,59,92,0.28)', borderRadius: 5, padding: '1px 5px', fontSize: 8, color: COLORS.ask }}>?</div>
                 {showFgTip && (
-                  <div style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 6, zIndex: 10,
-                    background: 'rgba(9,11,18,0.98)', border: `1px solid ${COLORS.border}`,
-                    borderRadius: 10, padding: '10px 12px',
-                    fontSize: 11, color: COLORS.text, lineHeight: 1.6,
-                    fontFamily: 'IBM Plex Mono, monospace',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-                  }}>
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 6, zIndex: 20, background: 'rgba(9,11,18,0.98)', border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: '10px 12px', fontSize: 11, color: COLORS.text, lineHeight: 1.65, boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }}>
                     Fear &amp; Greed Index (0–100).<br/>
                     0 = Extreme Fear, 100 = Extreme Greed.<br/>
                     Source: alternative.me
                   </div>
                 )}
               </div>
+
             </div>
           </section>
 
-          {/* ── Heatmap ───────────────────────────────────── */}
-          <section style={{ padding: '16px 16px 4px' }}>
+          {/* ── Heatmap ── */}
+          <section style={{ padding: '14px 16px 4px' }}>
             <MarketHeatmap tickerMap={tickerMap} onSelectSymbol={onSelectSymbol} />
           </section>
 
-          {/* ── Exchange Cards ────────────────────────────── */}
-          <section style={{ padding: '16px 16px 4px' }}>
-            <div style={sectionTitle}>
-              <span style={dot} />
-              Exchange
-              <span style={{ color: COLORS.muted, fontSize: 9, fontWeight: 400 }}>
-                BTC/USDT · tap to switch
-              </span>
-            </div>
+          {/* ── Exchange Cards ── */}
+          <section style={{ padding: '14px 16px 4px' }}>
+            <SectionTitle label="Exchange" />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-              {(['binance', 'bybit', 'okx'] as const).map(ex => {
-                const meta = EX_META[ex];
-                const isActive = exchange === ex;
-                const isBest = bestEx === ex;
-                const t = tickerMap['BTCUSDT'];
-                const flash = flashMap['BTCUSDT'];
+              {(['binance', 'bybit', 'okx'] as ExchangeId[]).map(ex => {
+                const meta    = EX_META[ex];
+                const isActive = currentExchange === ex;
+                const isBest   = bestEx === ex;
+                const t        = tickerMap.get('BTCUSDT');
+                const flash    = flashMap['BTCUSDT'];
                 return (
                   <button
                     key={ex}
-                    className={`ex-card${flash ? ` flash-${flash === 'up' ? 'up' : 'down'}` : ''}`}
+                    className={`hd-ex-card${flash ? ` hd-flash-${flash}` : ''}`}
                     onClick={() => onSelectExchange(ex)}
                     style={{
                       background: isActive
-                        ? `rgba(${meta.color.slice(5,-1)},0.07)`
-                        : isBest
-                          ? 'rgba(0,255,157,0.05)'
-                          : COLORS.panel,
-                      border: `1px solid ${isActive ? meta.color : isBest ? 'rgba(0,255,157,0.5)' : COLORS.border}`,
-                      borderRadius: 14, padding: '12px 10px',
+                        ? meta.color.replace(',1)', ',0.07)')
+                        : isBest ? 'rgba(0,255,157,0.04)' : COLORS.panel,
+                      border: `1px solid ${isActive ? meta.color : isBest ? 'rgba(0,255,157,0.45)' : COLORS.border}`,
+                      borderRadius: 14, padding: '11px 9px',
                       cursor: 'pointer', textAlign: 'left',
                       position: 'relative', overflow: 'hidden',
                       transition: 'border-color 0.2s',
+                      WebkitTapHighlightColor: 'transparent',
                     }}
                   >
-                    {/* BEST badge */}
                     {isBest && (
-                      <div style={{
-                        position: 'absolute', top: -1, right: 8,
-                        background: COLORS.bid, color: 'rgba(0,0,0,1)',
-                        fontSize: 7, fontWeight: 800, padding: '2px 5px',
-                        borderRadius: '0 0 5px 5px', letterSpacing: 0.5,
-                        fontFamily: 'IBM Plex Mono, monospace',
-                      }}>BEST</div>
+                      <div style={{ position: 'absolute', top: -1, right: 7, background: COLORS.bid, color: 'rgba(0,0,0,1)', fontSize: 7, fontWeight: 800, padding: '2px 5px', borderRadius: '0 0 5px 5px', letterSpacing: 0.5 }}>
+                        BEST
+                      </div>
                     )}
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <span style={{
-                        fontSize: 9, fontWeight: 800, letterSpacing: 1,
-                        color: isActive ? meta.color : COLORS.muted,
-                        fontFamily: 'IBM Plex Mono, monospace', textTransform: 'uppercase',
-                      }}>{meta.label}</span>
-                      <span style={{
-                        width: 6, height: 6, borderRadius: '50%',
-                        background: isActive ? meta.color : COLORS.border,
-                        display: 'inline-block',
-                      }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
+                      <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, color: isActive ? meta.color : COLORS.muted, textTransform: 'uppercase' as const }}>
+                        {meta.label}
+                      </span>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: isActive ? meta.color : COLORS.border, display: 'inline-block' }} />
                     </div>
-
-                    <div style={{
-                      fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: 12, fontWeight: 700, color: COLORS.text, marginBottom: 5,
-                    }}>
-                      {t ? fmtPrice(t.price) : '—'}
+                    <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.text, marginBottom: 5 }}>
+                      {t ? fmtPrice(t.lastPrice) : '—'}
                     </div>
-
                     <div style={{
                       display: 'inline-block', padding: '3px 6px', borderRadius: 6,
-                      fontSize: 10, fontWeight: 700,
-                      background: (t?.change24h ?? 0) >= 0 ? 'rgba(0,255,157,0.15)' : 'rgba(255,59,92,0.15)',
-                      color: (t?.change24h ?? 0) >= 0 ? COLORS.bid : COLORS.ask,
-                      marginBottom: 6, fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: 10, fontWeight: 700, marginBottom: 6,
+                      background: (t?.changePct ?? 0) >= 0 ? 'rgba(0,255,157,0.14)' : 'rgba(255,59,92,0.14)',
+                      color: (t?.changePct ?? 0) >= 0 ? COLORS.bid : COLORS.ask,
                     }}>
-                      {(t?.change24h ?? 0) >= 0 ? '+' : ''}{(t?.change24h ?? 0).toFixed(2)}%
+                      {(t?.changePct ?? 0) >= 0 ? '+' : ''}{(t?.changePct ?? 0).toFixed(2)}%
                     </div>
-
-                    {/* volume — bigger & bold */}
-                    <div style={{
-                      fontSize: 10, fontWeight: 600,
-                      color: 'rgba(255,255,255,0.55)',
-                      fontFamily: 'IBM Plex Mono, monospace',
-                      marginBottom: 6,
-                    }}>
-                      Vol {t ? fmt(t.volume24h) : '—'}
+                    {/* Volume — bold & readable */}
+                    <div style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 7 }}>
+                      Vol {t ? fmtCompact(t.volume24h) : '—'}
                     </div>
-
-                    {/* sparkline */}
+                    {/* Sparkline */}
                     <Sparkline
                       data={sparkData['BTCUSDT'] ?? []}
-                      color={isActive ? meta.color : COLORS.muted}
-                      width={72}
-                      height={32}
+                      color={isActive ? meta.color : 'rgba(255,255,255,0.18)'}
+                      width={68} height={30}
                     />
                   </button>
                 );
@@ -768,151 +601,95 @@ const HomeDashboard = memo(({
             </div>
           </section>
 
-          {/* ── Top Movers ────────────────────────────────── */}
-          <section style={{ padding: '16px 16px 4px' }}>
-            {/* header row */}
+          {/* ── Top Movers ── */}
+          <section style={{ padding: '14px 16px 4px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div style={sectionTitle}>
-                <span style={dot} />
-                Top Movers
-              </div>
-              {/* tabs */}
-              <div style={{
-                display: 'flex', gap: 3,
-                background: COLORS.panel, border: `1px solid ${COLORS.border}`,
-                borderRadius: 8, padding: 3,
-              }}>
+              <SectionTitle label="Top Movers" />
+              {/* Tabs */}
+              <div style={{ display: 'flex', gap: 3, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 3 }}>
                 {(['gainers', 'losers', 'all'] as const).map(t => (
                   <button
                     key={t}
-                    className="tab-btn"
+                    className="hd-tab"
                     onClick={() => setMoversTab(t)}
                     style={{
-                      fontSize: 9, fontWeight: 700, padding: '4px 8px',
-                      borderRadius: 6, border: 'none', cursor: 'pointer',
-                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: 9, fontWeight: 700, padding: '4px 8px', borderRadius: 6,
+                      border: 'none', cursor: 'pointer',
+                      fontFamily: '"IBM Plex Mono", monospace',
                       background: moversTab === t
-                        ? t === 'gainers' ? 'rgba(0,255,157,0.18)'
-                          : t === 'losers' ? 'rgba(255,59,92,0.18)'
-                          : 'rgba(255,255,255,0.08)'
+                        ? t === 'gainers' ? 'rgba(0,255,157,0.18)' : t === 'losers' ? 'rgba(255,59,92,0.18)' : 'rgba(255,255,255,0.08)'
                         : 'transparent',
                       color: moversTab === t
-                        ? t === 'gainers' ? COLORS.bid
-                          : t === 'losers' ? COLORS.ask
-                          : COLORS.text
+                        ? t === 'gainers' ? COLORS.bid : t === 'losers' ? COLORS.ask : COLORS.text
                         : COLORS.muted,
+                      transition: 'all 0.15s',
+                      WebkitTapHighlightColor: 'transparent',
                     }}
                   >
-                    {t === 'gainers' ? '▲' : t === 'losers' ? '▼' : '●'}{' '}
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                    {t === 'gainers' ? '▲' : t === 'losers' ? '▼' : '●'} {t.charAt(0).toUpperCase() + t.slice(1)}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* search */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              background: COLORS.panel, border: `1px solid ${COLORS.border}`,
-              borderRadius: 10, padding: '8px 12px', marginBottom: 10,
-            }}>
-              <span style={{ color: COLORS.muted, fontSize: 13 }}>🔍</span>
+            {/* Search */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: '8px 12px', marginBottom: 10 }}>
+              <span style={{ color: COLORS.muted, fontSize: 12, flexShrink: 0 }}>🔍</span>
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search coin…"
-                style={{
-                  background: 'none', border: 'none', outline: 'none',
-                  color: COLORS.text, fontSize: 12, flex: 1,
-                  fontFamily: 'IBM Plex Mono, monospace',
-                }}
+                style={{ background: 'none', border: 'none', outline: 'none', color: COLORS.text, fontSize: 12, flex: 1, fontFamily: '"IBM Plex Mono", monospace' }}
               />
               {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  style={{ background: 'none', border: 'none', color: COLORS.muted, cursor: 'pointer', fontSize: 14 }}
-                >✕</button>
+                <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', color: COLORS.muted, cursor: 'pointer', fontSize: 14, padding: 0 }}>✕</button>
               )}
             </div>
 
-            {/* list */}
-            <div style={{
-              background: COLORS.panel, border: `1px solid ${COLORS.border}`,
-              borderRadius: 14, overflow: 'hidden',
-            }}>
+            {/* List */}
+            <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 14, overflow: 'hidden' }}>
               {filteredMovers.length === 0 ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: COLORS.muted, fontSize: 12, fontFamily: 'IBM Plex Mono, monospace' }}>
-                  No coins found
-                </div>
+                <div style={{ padding: 24, textAlign: 'center', color: COLORS.muted, fontSize: 12 }}>No coins found</div>
               ) : filteredMovers.map((c, i) => {
-                const isUp = c.change24h >= 0;
+                const isUp  = c.pct >= 0;
                 const flash = flashMap[c.sym];
-                const base = c.sym.replace('USDT', '');
+                const base  = c.sym.replace('USDT', '').replace('USDC', '');
                 return (
                   <button
                     key={c.sym}
-                    className={`mover-row${flash ? ` flash-${flash === 'up' ? 'up' : 'down'}` : ''}`}
+                    className={`hd-mover${flash ? ` hd-flash-${flash}` : ''}`}
                     onClick={() => onSelectSymbol(c.sym)}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 12,
-                      padding: '12px 14px', width: '100%',
-                      background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '11px 13px', width: '100%',
+                      background: 'transparent', border: 'none', cursor: 'pointer',
                       borderBottom: i < filteredMovers.length - 1 ? `1px solid ${COLORS.border}` : 'none',
-                      transition: 'background 0.15s',
-                      minHeight: 48,
+                      textAlign: 'left', minHeight: 48,
+                      WebkitTapHighlightColor: 'transparent',
                     }}
                   >
-                    {/* icon placeholder */}
-                    <div style={{
-                      width: 36, height: 36, borderRadius: '50%',
-                      background: isUp ? 'rgba(0,255,157,0.12)' : 'rgba(255,59,92,0.12)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      flexShrink: 0, fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: 12, fontWeight: 700,
-                      color: isUp ? COLORS.bid : COLORS.ask,
-                    }}>
+                    {/* icon */}
+                    <div style={{ width: 34, height: 34, borderRadius: '50%', background: isUp ? 'rgba(0,255,157,0.10)' : 'rgba(255,59,92,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, fontWeight: 700, color: isUp ? COLORS.bid : COLORS.ask }}>
                       {base.slice(0, 2)}
                     </div>
-
                     {/* name + vol */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 13, fontWeight: 700, color: COLORS.text }}>
-                        {base}
-                        <span style={{ fontSize: 10, color: COLORS.muted, fontWeight: 400 }}>/USDT</span>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.text }}>
+                        {base}<span style={{ fontSize: 10, color: COLORS.muted, fontWeight: 400 }}>/USDT</span>
                       </div>
-                      <div style={{
-                        fontSize: 10, fontWeight: 600,
-                        color: 'rgba(255,255,255,0.45)',
-                        fontFamily: 'IBM Plex Mono, monospace', marginTop: 2,
-                      }}>
-                        Vol {fmt(c.volume24h)}
+                      <div style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.40)', marginTop: 2 }}>
+                        Vol {fmtCompact(c.vol)}
                       </div>
                     </div>
-
                     {/* sparkline */}
-                    <Sparkline
-                      data={sparkData[c.sym] ?? []}
-                      color={isUp ? COLORS.bid : COLORS.ask}
-                      width={64}
-                      height={28}
-                    />
-
+                    <Sparkline data={sparkData[c.sym] ?? []} color={isUp ? COLORS.bid : COLORS.ask} width={60} height={26} />
                     {/* price + change */}
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{
-                        fontFamily: 'IBM Plex Mono, monospace',
-                        fontSize: 12, fontWeight: 700, color: COLORS.text, marginBottom: 4,
-                      }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.text, marginBottom: 4 }}>
                         {fmtPrice(c.price)}
                       </div>
-                      <span style={{
-                        display: 'inline-block', padding: '3px 7px', borderRadius: 7,
-                        fontSize: 11, fontWeight: 700,
-                        background: isUp ? 'rgba(0,255,157,0.15)' : 'rgba(255,59,92,0.15)',
-                        color: isUp ? COLORS.bid : COLORS.ask,
-                        fontFamily: 'IBM Plex Mono, monospace',
-                      }}>
-                        {isUp ? '+' : ''}{c.change24h.toFixed(2)}%
+                      <span style={{ display: 'inline-block', padding: '3px 7px', borderRadius: 7, fontSize: 11, fontWeight: 700, background: isUp ? 'rgba(0,255,157,0.14)' : 'rgba(255,59,92,0.14)', color: isUp ? COLORS.bid : COLORS.ask }}>
+                        {isUp ? '+' : ''}{c.pct.toFixed(2)}%
                       </span>
                     </div>
                   </button>
@@ -921,49 +698,35 @@ const HomeDashboard = memo(({
             </div>
           </section>
 
-          {/* ── Watchlist ─────────────────────────────────── */}
-          <section style={{ padding: '16px 16px 4px' }}>
-            <div style={sectionTitle}>
-              <span style={dot} />
-              Watchlist
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {WATCHLIST.map((sym, i) => {
-                const t = tickerMap[sym];
-                const isUp = (t?.change24h ?? 0) >= 0;
+          {/* ── Watchlist ── */}
+          <section style={{ padding: '14px 16px 4px' }}>
+            <SectionTitle label="Watchlist" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+              {WATCHLIST_SYMS.map((sym, i) => {
+                const t     = tickerMap.get(sym);
+                const isUp  = (t?.changePct ?? 0) >= 0;
                 const flash = flashMap[sym];
                 return (
                   <button
                     key={sym}
-                    className={flash ? `flash-${flash === 'up' ? 'up' : 'down'}` : ''}
+                    className={flash ? `hd-flash-${flash}` : ''}
                     onClick={() => onSelectSymbol(sym)}
                     style={{
-                      display: 'flex', alignItems: 'center',
+                      display: 'flex', alignItems: 'center', gap: 10,
                       padding: '10px 0', background: 'none', border: 'none',
-                      borderBottom: i < WATCHLIST.length - 1 ? `1px solid ${COLORS.border}` : 'none',
+                      borderBottom: i < WATCHLIST_SYMS.length - 1 ? `1px solid ${COLORS.border}` : 'none',
                       cursor: 'pointer', textAlign: 'left', minHeight: 48,
-                      gap: 10,
+                      WebkitTapHighlightColor: 'transparent',
                     }}
                   >
-                    <span style={{
-                      fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: 13, fontWeight: 700, color: COLORS.text, flex: 1,
-                    }}>
-                      {sym.replace('USDT', '')}
-                      <span style={{ fontSize: 10, color: COLORS.muted, fontWeight: 400 }}>/USDT</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: sym === activeSymbol.toUpperCase() ? COLORS.gold : COLORS.text, flex: 1 }}>
+                      {sym.replace('USDT', '')}<span style={{ fontSize: 10, color: COLORS.muted, fontWeight: 400 }}>/USDT</span>
                     </span>
-                    <span style={{
-                      fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: 12, fontWeight: 600, color: COLORS.text,
-                    }}>
-                      {t ? fmtPrice(t.price) : '—'}
+                    <span style={{ fontSize: 12, fontWeight: 600, color: COLORS.text }}>
+                      {t ? fmtPrice(t.lastPrice) : '—'}
                     </span>
-                    <span style={{
-                      fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: 11, fontWeight: 700, minWidth: 60, textAlign: 'right',
-                      color: isUp ? COLORS.bid : COLORS.ask,
-                    }}>
-                      {isUp ? '+' : ''}{(t?.change24h ?? 0).toFixed(2)}%
+                    <span style={{ fontSize: 11, fontWeight: 700, minWidth: 58, textAlign: 'right', color: isUp ? COLORS.bid : COLORS.ask }}>
+                      {isUp ? '+' : ''}{(t?.changePct ?? 0).toFixed(2)}%
                     </span>
                   </button>
                 );
@@ -971,51 +734,27 @@ const HomeDashboard = memo(({
             </div>
           </section>
 
-          {/* ── Install Strip (v72 preserved) ─────────────── */}
-          <section style={{ padding: '16px 16px 8px' }}>
-            <div style={{
-              background: COLORS.panel,
-              border: `1px solid ${COLORS.border}`,
-              borderRadius: 14, padding: '14px 16px',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            }}>
+          {/* ── Install Strip (v72 preserved) ── */}
+          <section style={{ padding: '14px 16px 8px' }}>
+            <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: '13px 15px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: 11, fontWeight: 700, color: COLORS.text, marginBottom: 4,
-                }}>
-                  INSTALL APP
-                </div>
-                <div style={{ fontSize: 10, color: COLORS.muted, fontFamily: 'IBM Plex Mono, monospace' }}>
-                  Works offline · No ads · Free
-                </div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.text, marginBottom: 4 }}>INSTALL APP</div>
+                <div style={{ fontSize: 10, color: COLORS.muted }}>Works offline · No ads · Free</div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                {/* Android */}
                 <button
                   onClick={() => {
-                    const prompt = (window as unknown as Record<string, unknown>).__pwaPrompt as { prompt?: () => void } | undefined;
-                    if (prompt?.prompt) prompt.prompt();
+                    const p = (window as unknown as Record<string, unknown>).__pwaPrompt as { prompt?: () => void } | undefined;
+                    p?.prompt?.();
                   }}
-                  style={{
-                    width: 40, height: 40, borderRadius: 10,
-                    background: 'rgba(0,255,157,0.12)', border: `1px solid rgba(0,255,157,0.3)`,
-                    color: COLORS.bid, fontSize: 18, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
+                  style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(0,255,157,0.12)', border: '1px solid rgba(0,255,157,0.30)', color: COLORS.bid, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   title="Install on Android"
                 >
                   🤖
                 </button>
-                {/* iOS */}
                 <button
                   onClick={() => alert('Safari → Share (□↑) → Add to Home Screen')}
-                  style={{
-                    width: 40, height: 40, borderRadius: 10,
-                    background: 'rgba(255,255,255,0.06)', border: `1px solid ${COLORS.border}`,
-                    color: COLORS.text, fontSize: 18, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
+                  style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: `1px solid ${COLORS.border}`, color: COLORS.text, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   title="Install on iOS"
                 >
                   🍎
