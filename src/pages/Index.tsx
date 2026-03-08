@@ -337,14 +337,14 @@ const MobileMarketRow: React.FC<{
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px', flexShrink: 0 }}>
         <span style={{
           fontSize: '14px', fontWeight: 700,
-          color: snap ? (isUp ? 'rgba(0,220,130,1)' : 'rgba(239,83,80,1)') : 'rgba(255,255,255,0.55)',
+          color: price > 0 ? (isUp ? 'rgba(0,220,130,1)' : 'rgba(239,83,80,1)') : 'rgba(255,255,255,0.55)',
           fontVariantNumeric: 'tabular-nums',
           letterSpacing: '-0.01em',
           pointerEvents: 'none',
         }}>
           {price > 0 ? formatPrice(price) : '—'}
         </span>
-        {snap ? (
+        {price > 0 ? (
           <span style={{
             fontSize: '11px', fontWeight: 700,
             padding: '3px 8px', borderRadius: '20px',
