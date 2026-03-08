@@ -57,41 +57,53 @@ const EX_META: Record<ExchangeId, { label: string; color: string }> = {
 };
 
 // ─── Exchange Logo SVGs ───────────────────────────────────────────────────────
+// ─── Binance Logo ─────────────────────────────────────────────────────────────
+// Source: file_BINANCE.svg — 5 diamond cross pattern (BNB icon), gold #F0B90B
 const BinanceLogo = memo(({ size = 22 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
     {/* Top diamond */}
-    <path fill="rgba(242,162,33,1)" d="M16 3L18.83 5.83L16 8.66L13.17 5.83Z"/>
+    <path fill="rgba(240,185,11,1)" d="M16,3.2 L18.8,6.0 L16,8.8 L13.2,6.0 Z"/>
     {/* Left diamond */}
-    <path fill="rgba(242,162,33,1)" d="M6.34 12.66L9.17 9.83L12 12.66L9.17 15.49Z"/>
-    {/* Center diamond */}
-    <path fill="rgba(242,162,33,1)" d="M16 12.66L20.83 17.49L16 22.32L11.17 17.49Z"/>
+    <path fill="rgba(240,185,11,1)" d="M7.2,12.0 L10.0,9.2 L12.8,12.0 L10.0,14.8 Z"/>
+    {/* Center diamond — larger */}
+    <path fill="rgba(240,185,11,1)" d="M16,11.2 L20.8,16.0 L16,20.8 L11.2,16.0 Z"/>
     {/* Right diamond */}
-    <path fill="rgba(242,162,33,1)" d="M25.66 12.66L22.83 9.83L20 12.66L22.83 15.49Z"/>
+    <path fill="rgba(240,185,11,1)" d="M22.0,9.2 L24.8,12.0 L22.0,14.8 L19.2,12.0 Z"/>
     {/* Bottom diamond */}
-    <path fill="rgba(242,162,33,1)" d="M16 25.34L18.83 22.51L21.66 25.34L18.83 28.17Z"/>
-    <path fill="rgba(242,162,33,1)" d="M10.34 25.34L13.17 22.51L16 25.34L13.17 28.17Z"/>
-    {/* Diagonal connector */}
-    <path fill="rgba(242,162,33,1)" d="M9.17 9.83L22.83 9.83L22.83 12.66L9.17 12.66Z" opacity="0"/>
+    <path fill="rgba(240,185,11,1)" d="M16,23.2 L18.8,26.0 L16,28.8 L13.2,26.0 Z"/>
   </svg>
 ));
 BinanceLogo.displayName = 'BinanceLogo';
 
+// ─── Bybit Logo ───────────────────────────────────────────────────────────────
+// Source: file_BYBIT.svg — black bg, orange Bybit 'B' lettermark
+// The Bybit icon is their stylized B with two bumps (like a B but connected)
 const BybitLogo = memo(({ size = 22 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
-    <rect width="32" height="32" rx="6" fill="rgba(255,89,89,1)"/>
-    <text x="4" y="22" fontSize="14" fontWeight="900" fontFamily="Arial,sans-serif" fill="white" letterSpacing="-0.5">BB</text>
+    <rect width="32" height="32" rx="6" fill="rgba(10,10,10,1)"/>
+    {/* Bybit B: vertical bar left + two bumps right */}
+    {/* Vertical bar */}
+    <rect x="7" y="7" width="4" height="18" rx="1" fill="rgba(247,166,0,1)"/>
+    {/* Top bump */}
+    <path fill="rgba(247,166,0,1)" d="M11,7 L11,7 L18,7 C21.5,7 23.5,9 23.5,11.5 C23.5,14 21.5,16 18,16 L11,16 L11,13 L17.5,13 C19,13 20,12.4 20,11.5 C20,10.6 19,10 17.5,10 L11,10 Z"/>
+    {/* Bottom bump */}
+    <path fill="rgba(247,166,0,1)" d="M11,16 L11,16 L18.5,16 C22.5,16 24.5,18.1 24.5,20.8 C24.5,23.5 22.5,25 18.5,25 L11,25 L11,22 L18,22 C19.5,22 21,21.4 21,20.8 C21,20.1 19.5,19 18,19 L11,19 Z"/>
   </svg>
 ));
 BybitLogo.displayName = 'BybitLogo';
 
+// ─── OKX Logo ─────────────────────────────────────────────────────────────────
+// Source: file_OKX.svg — black bg, white shapes (OKX wordmark: O + K + X)
+// For 32x32 icon: use OKX geometric icon = 4 squares in 2x2 with center gap
+// This matches the X mark in the OKX wordmark (4 squares diagonal)
 const OkxLogo = memo(({ size = 22 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
     <rect width="32" height="32" rx="6" fill="rgba(0,0,0,1)"/>
-    <rect x="4" y="4" width="10" height="10" rx="2" fill="rgba(0,200,255,1)"/>
-    <rect x="18" y="4" width="10" height="10" rx="2" fill="rgba(0,200,255,1)"/>
-    <rect x="11" y="11" width="10" height="10" rx="2" fill="rgba(0,200,255,1)"/>
-    <rect x="4" y="18" width="10" height="10" rx="2" fill="rgba(0,200,255,1)"/>
-    <rect x="18" y="18" width="10" height="10" rx="2" fill="rgba(0,200,255,1)"/>
+    {/* 4 squares in 2x2 grid — OKX X geometric mark */}
+    <rect x="4"  y="4"  width="11" height="11" rx="1.5" fill="rgba(255,255,255,1)"/>
+    <rect x="17" y="4"  width="11" height="11" rx="1.5" fill="rgba(255,255,255,1)"/>
+    <rect x="4"  y="17" width="11" height="11" rx="1.5" fill="rgba(255,255,255,1)"/>
+    <rect x="17" y="17" width="11" height="11" rx="1.5" fill="rgba(255,255,255,1)"/>
   </svg>
 ));
 OkxLogo.displayName = 'OkxLogo';

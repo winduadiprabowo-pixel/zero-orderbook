@@ -13,35 +13,41 @@ interface ExchangeSwitcherProps {
   onChange: (ex: ExchangeId) => void;
 }
 
-const BybitLogo: React.FC<{ color: string }> = ({ color }) => (
-  <svg width="16" height="16" viewBox="0 0 100 100" fill="none">
-    <rect x="10" y="10" width="18" height="80" rx="4" fill={color} />
-    <rect x="10" y="10" width="52" height="18" rx="4" fill={color} />
-    <rect x="10" y="41" width="46" height="18" rx="4" fill={color} />
-    <rect x="10" y="72" width="52" height="18" rx="4" fill={color} />
-    <rect x="54" y="10" width="18" height="31" rx="4" fill={color} />
-    <rect x="54" y="41" width="18" height="49" rx="4" fill={color} />
-  </svg>
-);
-
+// Binance — 5 diamond cross (BNB icon), from file_BINANCE.svg
 const BinanceLogo: React.FC<{ color: string }> = ({ color }) => (
   <svg width="16" height="16" viewBox="0 0 100 100" fill="none">
-    <rect x="38" y="5"  width="24" height="24" rx="2" transform="rotate(45 50 17)" fill={color} />
-    <rect x="5"  y="38" width="24" height="24" rx="2" transform="rotate(45 17 50)" fill={color} />
-    <rect x="38" y="38" width="24" height="24" rx="2" transform="rotate(45 50 50)" fill={color} />
-    <rect x="71" y="38" width="24" height="24" rx="2" transform="rotate(45 83 50)" fill={color} />
-    <rect x="38" y="71" width="24" height="24" rx="2" transform="rotate(45 50 83)" fill={color} />
+    {/* Top */}
+    <path fill={color} d="M50,5 L62,17 L50,29 L38,17 Z"/>
+    {/* Left */}
+    <path fill={color} d="M17,38 L29,26 L41,38 L29,50 Z"/>
+    {/* Center (bigger) */}
+    <path fill={color} d="M50,29 L71,50 L50,71 L29,50 Z"/>
+    {/* Right */}
+    <path fill={color} d="M59,26 L71,38 L59,50 L47,38 Z"/>
+    {/* Bottom */}
+    <path fill={color} d="M50,71 L62,83 L50,95 L38,83 Z"/>
   </svg>
 );
 
-// OKX logo — simplified "O" mark
+// Bybit — black bg, orange B lettermark, from file_BYBIT.svg
+const BybitLogo: React.FC<{ color: string }> = ({ color }) => (
+  <svg width="16" height="16" viewBox="0 0 100 100" fill="none">
+    {/* Vertical bar */}
+    <rect x="18" y="12" width="14" height="76" rx="3" fill={color}/>
+    {/* Top bump */}
+    <path fill={color} d="M32,12 L32,12 L60,12 C73,12 80,20 80,30 C80,40 73,47 60,47 L32,47 L32,38 L58,38 C63,38 67,35 67,30 C67,25 63,21 58,21 L32,21 Z"/>
+    {/* Bottom bump */}
+    <path fill={color} d="M32,47 L32,47 L62,47 C76,47 84,56 84,66 C84,76 76,88 62,88 L32,88 L32,79 L61,79 C66,79 71,74 71,66 C71,58 66,56 61,56 L32,56 Z"/>
+  </svg>
+);
+
+// OKX — black bg, 4 white squares 2x2 (from file_OKX.svg X pattern)
 const OkxLogo: React.FC<{ color: string }> = ({ color }) => (
   <svg width="16" height="16" viewBox="0 0 100 100" fill="none">
-    <rect x="10" y="10" width="32" height="32" rx="6" fill={color} />
-    <rect x="58" y="10" width="32" height="32" rx="6" fill={color} />
-    <rect x="34" y="34" width="32" height="32" rx="6" fill={color} />
-    <rect x="10" y="58" width="32" height="32" rx="6" fill={color} />
-    <rect x="58" y="58" width="32" height="32" rx="6" fill={color} />
+    <rect x="8"  y="8"  width="36" height="36" rx="5" fill={color}/>
+    <rect x="56" y="8"  width="36" height="36" rx="5" fill={color}/>
+    <rect x="8"  y="56" width="36" height="36" rx="5" fill={color}/>
+    <rect x="56" y="56" width="36" height="36" rx="5" fill={color}/>
   </svg>
 );
 
