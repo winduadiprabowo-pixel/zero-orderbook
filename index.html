@@ -12,6 +12,18 @@
     <meta name="theme-color" content="#0d1017" />
     <meta name="description" content="ZERØ ORDER BOOK — Real-time crypto order flow. No noise. Just alpha." />
 
+    <!-- PWA v62 -->
+    <link rel="manifest" href="/manifest.json" />
+    <!-- iOS PWA -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ZERØ OB" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- Android Chrome -->
+    <meta name="application-name" content="ZERØ ORDER BOOK" />
+    <!-- Prevent phone number detection -->
+    <meta name="format-detection" content="telephone=no" />
+
     <!-- OG -->
     <meta property="og:title" content="ZERØ ORDER BOOK" />
     <meta property="og:description" content="Real-time crypto order flow. No noise. Just alpha." />
@@ -105,6 +117,16 @@
 
       // Hard fallback: 4s max no matter what
       setTimeout(hideSplash, 4000);
+    </script>
+
+    <script>
+      // v62: Register Service Worker for PWA + offline support
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .catch(function() {/* SW optional — non-fatal */});
+        });
+      }
     </script>
   </body>
 </html>
