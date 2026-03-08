@@ -63,7 +63,8 @@ export function getWsUrl(exchange: ExchangeId, _symbol: string): string {
       // Not used directly — useMultiExchangeWs builds combined URL
       return `${PROXY_WS}/ws/stream`;
     case 'coinbase':
-      return 'wss://advanced-trade-ws.coinbase.com';
+      // v68: route via CF Worker proxy — direct Coinbase WS blocked by ISP in ID
+      return `${PROXY_WS}/coinbase`;
   }
 }
 
