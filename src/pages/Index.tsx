@@ -24,6 +24,7 @@ import CoinLogo                   from '@/components/CoinLogo';
 import CvdChart                   from '@/components/CvdChart';
 
 import LicenseModal, { ProLock } from '@/components/LicenseGate';
+import HomeDashboard             from '@/components/HomeDashboard';
 import ExchangeSwitcher        from '@/components/ExchangeSwitcher';
 import { type ExchangeId, getExchange } from '@/hooks/useExchange';
 import { useMultiExchangeWs }  from '@/hooks/useMultiExchangeWs';
@@ -47,10 +48,15 @@ import {
 
 // ── Mobile tabs ───────────────────────────────────────────────────────────────
 
-type MobileTab = 'markets' | 'chart' | 'book' | 'depth' | 'trades' | 'cvd' | 'liqs';
+type MobileTab = 'home' | 'markets' | 'chart' | 'book' | 'depth' | 'trades' | 'cvd' | 'liqs';
 
 // SVG icons — no emoji, no unicode garbage
 const TAB_ICONS: Record<MobileTab, React.ReactNode> = {
+  home: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+      <path d="M3 9.5L10 3L17 9.5V17H13V13H7V17H3V9.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" fill="none"/>
+    </svg>
+  ),
   markets: (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
       <rect x="2" y="4" width="7" height="5" rx="1" stroke="currentColor" strokeWidth="1.4"/>
@@ -108,6 +114,7 @@ const TAB_ICONS: Record<MobileTab, React.ReactNode> = {
 };
 
 const MOBILE_TABS: { id: MobileTab; label: string }[] = [
+  { id: 'home',    label: 'Home'    },
   { id: 'markets', label: 'Markets' },
   { id: 'chart',   label: 'Chart'   },
   { id: 'book',    label: 'Book'    },
@@ -622,7 +629,7 @@ const Index: React.FC = () => {
     } catch { return '15m'; }
   });
   const [precision,     setPrecision]     = useState<Precision>('0.01');
-  const [mobileTab,     setMobileTab]     = useState<MobileTab>('markets');
+  const [mobileTab,     setMobileTab]     = useState<MobileTab>('home');
   const [tabletBottom,  setTabletBottom]  = useState<TabletBottomTab>('depth');
   const [showMarkets,   setShowMarkets]   = useState(false);
   // v66: orderbook hover → chart price line sync
@@ -1006,6 +1013,17 @@ const Index: React.FC = () => {
         touchAction: 'pan-y',
       }}>
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+          {/* HOME — dashboard */}
+          <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'home'    ? 'flex' : 'none', flexDirection: 'column' }}>
+            <HomeDashboard
+              globalStats={globalStats}
+              tickerMap={allTickers}
+              activeSymbol={activeSymbol}
+              onSelectSymbol={handleSymbolChange}
+              onSelectExchange={handleExchangeChange}
+              currentExchange={exchange}
+            />
+          </div>
           {/* MARKETS — coin list, tap to go to chart */}
           <div style={{ position: 'absolute', inset: 0, display: mobileTab === 'markets' ? 'flex' : 'none', flexDirection: 'column' }}>
             <MobileMarketList
