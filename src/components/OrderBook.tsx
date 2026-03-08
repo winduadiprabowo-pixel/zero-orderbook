@@ -28,6 +28,8 @@ interface OrderBookProps {
   precisionOptions?: Precision[];
   compact?:          boolean;
   levels?:           number;
+  onPriceHover?:     (price: number | null) => void; // v66: chart crosshair sync
+  onPriceCopy?:      (price: number) => void;        // v66: copy feedback
 }
 
 const DEFAULT_PRECISION_OPTIONS: Precision[] = ['0.1', '0.01', '0.001'];
@@ -35,18 +37,20 @@ const DEFAULT_PRECISION_OPTIONS: Precision[] = ['0.1', '0.01', '0.001'];
 // ── Virtual scroll container ──────────────────────────────────────────────────
 
 interface VirtualListProps {
-  rows:      OrderBookLevel2[];
-  side:      'bid' | 'ask';
-  maxTotal:  number;
-  maxSize:   number;
-  decimals:  number;
-  compact:   boolean;
-  /** asks list: flex-end so bottom-anchored (nearest spread at bottom) */
-  justify?:  'flex-end' | 'flex-start';
+  rows:          OrderBookLevel2[];
+  side:          'bid' | 'ask';
+  maxTotal:      number;
+  maxSize:       number;
+  decimals:      number;
+  compact:       boolean;
+  justify?:      'flex-end' | 'flex-start';
+  onPriceHover?: (price: number | null) => void;
+  onPriceCopy?:  (price: number) => void;
 }
 
 const VirtualList: React.FC<VirtualListProps> = React.memo(({
   rows, side, maxTotal, maxSize, decimals, compact, justify = 'flex-start',
+  onPriceHover, onPriceCopy,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -96,6 +100,8 @@ const VirtualList: React.FC<VirtualListProps> = React.memo(({
               decimals={decimals}
               compact={compact}
               rank={startIdx + i + 1}
+              onPriceHover={onPriceHover}
+              onPriceCopy={onPriceCopy}
             />
           ))}
         </div>
@@ -111,6 +117,7 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
   bids, asks, midPrice, prevMidPrice, precision, onPrecisionChange,
   precisionOptions = DEFAULT_PRECISION_OPTIONS,
   compact = false, levels = 20,
+  onPriceHover, onPriceCopy,
 }) => {
   // v63: collapsible depth — compact mode has toggle (mobile)
   const [collapsed, setCollapsed] = useState(false);
@@ -228,6 +235,8 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
             decimals={decimals}
             compact={compact}
             justify="flex-end"
+            onPriceHover={onPriceHover}
+            onPriceCopy={onPriceCopy}
           />
 
           <MidPriceRow midPrice={midPrice} midDirection={midDirection} spread={spread} decimals={decimals} />
@@ -240,6 +249,8 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({
             maxSize={maxSize}
             decimals={decimals}
             compact={compact}
+            onPriceHover={onPriceHover}
+            onPriceCopy={onPriceCopy}
           />
         </>
       )}
@@ -301,14 +312,44 @@ MidPriceRow.displayName = 'MidPriceRow';
 interface OrderRowProps {
   rank: number; level: OrderBookLevel2; side: 'bid' | 'ask';
   maxTotal: number; maxSize: number; decimals: number; compact: boolean;
+  onPriceHover?: (price: number | null) => void; // v66
+  onPriceCopy?:  (price: number) => void;        // v66
 }
 
 const OrderRow: React.FC<OrderRowProps> = React.memo(({
   rank, level, side, maxTotal, maxSize, decimals, compact,
+  onPriceHover, onPriceCopy,
 }) => {
   const rowRef      = useRef<HTMLDivElement>(null);
   const prevSizeRef = useRef(level.size);
   const timerRef    = useRef<ReturnType<typeof setTimeout>>();
+
+  // v66: click → copy price to clipboard
+  const handleClick = useCallback(() => {
+    const str = level.price.toFixed(decimals);
+    try {
+      navigator.clipboard.writeText(str).then(() => onPriceCopy?.(level.price));
+    } catch {
+      // fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = str; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      onPriceCopy?.(level.price);
+    }
+  }, [level.price, decimals, onPriceCopy]);
+
+  // v66: hover → chart price line sync
+  const handleMouseEnter = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)';
+    onPriceHover?.(level.price);
+  }, [level.price, onPriceHover]);
+
+  const handleMouseLeave = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+    onPriceHover?.(null);
+  }, [onPriceHover]);
 
   if (prevSizeRef.current !== level.size && prevSizeRef.current > 0) {
     const el = rowRef.current;
@@ -342,17 +383,18 @@ const OrderRow: React.FC<OrderRowProps> = React.memo(({
     <div
       ref={rowRef}
       className={isWhale ? 'whale-row' : undefined}
+      onClick={handleClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       style={{
         display: 'grid',
         gridTemplateColumns: compact ? '1fr 1fr 1fr' : '20px 1fr 1fr 1fr',
         padding: compact ? '1.5px 8px' : '1.5px 10px',
         gap: '4px', height: ROW_H + 'px', alignItems: 'center',
         fontSize: '11px', fontWeight: isWhale ? 700 : 500,
-        position: 'relative', cursor: 'default', flexShrink: 0,
+        position: 'relative', cursor: 'copy', flexShrink: 0,
         borderLeft: isWhale ? '2px solid rgba(242,162,33,0.6)' : '2px solid transparent',
       }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)'; }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
     >
       {/* Depth bar */}
       <div style={{
