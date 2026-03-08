@@ -530,7 +530,12 @@ const PwaInstallBanner: React.FC = React.memo(() => {
   });
 
   React.useEffect(() => {
-    const handler = (e: Event) => { e.preventDefault(); setPrompt(e); };
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setPrompt(e);
+      // expose globally so HomeDashboard install button can trigger it
+      (window as unknown as Record<string, unknown>).__pwaPrompt = e;
+    };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
