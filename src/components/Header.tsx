@@ -292,6 +292,20 @@ const Header: React.FC<HeaderProps> = React.memo(({
         >
           ⚡ PRO $9
         </button>
+
+        {/* v66: trust signal — indie dev badge */}
+        <div
+          title="Built by an indie developer in Surabaya, Indonesia"
+          style={{
+            display: 'flex', alignItems: 'center', gap: '4px',
+            flexShrink: 0, cursor: 'default',
+          }}
+          className="header-timestamp"
+        >
+          <span style={{ fontSize: '8px', color: 'rgba(255,255,255,0.12)', letterSpacing: '0.06em', fontWeight: 600 }}>
+            indie dev · 🇮🇩
+          </span>
+        </div>
       </div>
 
       <style>{`
