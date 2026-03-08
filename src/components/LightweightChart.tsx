@@ -37,6 +37,7 @@ import type { Interval, TickerData, SymbolInfo } from '@/types/market';
 import type { ExchangeId } from '@/hooks/useExchange';
 import { formatCompact } from '@/lib/formatters';
 import { getReconnectDelay } from '@/lib/formatters';
+import { SkeletonChart } from './Skeleton';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -359,6 +360,8 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
   const [legend,     setLegend]     = useState<OHLCVLegend | null>(null);
   const [wsLive,     setWsLive]     = useState(false);
   const [chartReady, setChartReady] = useState(false);
+  // v63: show skeleton until first candle batch is loaded
+  const [candlesLoaded, setCandlesLoaded] = useState(false);
 
   const dec = useMemo(() => Math.min(symbolInfo?.priceDec ?? 2, 6), [symbolInfo?.priceDec]);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -532,6 +535,7 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
   // ── Load historical candles ─────────────────────────────────────────────────
   useEffect(() => {
     if (!chartReady) return;
+    setCandlesLoaded(false); // v63: reset skeleton on symbol/interval change
     const ac = new AbortController();
 
     (async () => {
@@ -545,8 +549,10 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
         candleSerRef.current?.setData(candles);
         volSerRef.current?.setData(volumes);
         chartRef.current?.timeScale().fitContent();
+        setCandlesLoaded(true); // v63: hide skeleton
       } catch {
         // aborted or network error — silently ignore, WS will update
+        setCandlesLoaded(true); // v63: hide skeleton even on error
       }
     })();
 
@@ -738,12 +744,21 @@ const LightweightChart: React.FC<LightweightChartProps> = memo(({
       {/* Chart container + countdown overlay */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        {/* v63: Skeleton overlay — visible until candles loaded */}
+        {!candlesLoaded && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'rgba(10,13,20,1)',
+            zIndex: 5, pointerEvents: 'none',
+          }}>
+            <SkeletonChart />
+          </div>
+        )}
         {/* v60: Countdown overlay — TradingView style, nempel di price axis kanan */}
         <div style={{
           position: 'absolute',
-          // right ~65px = approximate width of price axis
           right: 0,
-          bottom: '28px', // above time axis
+          bottom: '28px',
           pointerEvents: 'none',
           zIndex: 10,
         }}>
