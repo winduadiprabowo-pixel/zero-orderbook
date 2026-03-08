@@ -105,7 +105,7 @@ const Header: React.FC<HeaderProps> = React.memo(({
       <div style={{
         display: 'flex', alignItems: 'center',
         padding: '0 12px',
-        height: '48px', gap: '0',
+        height: '52px', gap: '0',
         overflow: 'hidden',
         minWidth: 0,
       }}>
