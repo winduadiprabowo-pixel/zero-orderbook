@@ -1,4 +1,4 @@
-// HomeDashboard.tsx — v74
+// HomeDashboard.tsx — v76b
 // FIX v74:
 //   - Props interface disesuaikan persis dengan Index.tsx:
 //       tickerMap: TickerMap (Map<string, TickerSnapshot>)
@@ -55,7 +55,82 @@ const EX_META: Record<ExchangeId, { label: string; color: string }> = {
   okx:     { label: 'OKX',     color: 'rgba(0,200,255,1)'  },
 };
 
+// ─── Exchange Logo SVGs ───────────────────────────────────────────────────────
+const BinanceLogo = memo(({ size = 22 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+    <path fill="rgba(242,162,33,1)" d="M16 0L19.69 3.69L9.38 14L5.69 10.31L16 0Z"/>
+    <path fill="rgba(242,162,33,1)" d="M22.62 6.62L26.31 10.31L9.38 27.24L5.69 23.55L22.62 6.62Z"/>
+    <path fill="rgba(242,162,33,1)" d="M3.08 13.24L6.77 16.93L3.08 20.62L-0.61 16.93L3.08 13.24Z" transform="translate(3,0)"/>
+    <path fill="rgba(242,162,33,1)" d="M22.62 13.24L26.31 16.93L16 27.24L12.31 23.55L22.62 13.24Z"/>
+    <path fill="rgba(242,162,33,1)" d="M9.38 16L13.07 19.69L9.38 23.38L5.69 19.69L9.38 16Z"/>
+  </svg>
+));
+BinanceLogo.displayName = 'BinanceLogo';
+
+const BybitLogo = memo(({ size = 22 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+    <rect width="32" height="32" rx="6" fill="rgba(255,89,89,1)"/>
+    <text x="4" y="22" fontSize="14" fontWeight="900" fontFamily="Arial,sans-serif" fill="white" letterSpacing="-0.5">BB</text>
+  </svg>
+));
+BybitLogo.displayName = 'BybitLogo';
+
+const OkxLogo = memo(({ size = 22 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+    <rect width="32" height="32" rx="6" fill="rgba(0,0,0,1)"/>
+    <rect x="4" y="4" width="10" height="10" rx="2" fill="rgba(0,200,255,1)"/>
+    <rect x="18" y="4" width="10" height="10" rx="2" fill="rgba(0,200,255,1)"/>
+    <rect x="11" y="11" width="10" height="10" rx="2" fill="rgba(0,200,255,1)"/>
+    <rect x="4" y="18" width="10" height="10" rx="2" fill="rgba(0,200,255,1)"/>
+    <rect x="18" y="18" width="10" height="10" rx="2" fill="rgba(0,200,255,1)"/>
+  </svg>
+));
+OkxLogo.displayName = 'OkxLogo';
+
+const EX_LOGO: Record<ExchangeId, React.ComponentType<{ size?: number }>> = {
+  binance: BinanceLogo,
+  bybit:   BybitLogo,
+  okx:     OkxLogo,
+};
+
+// ─── News types ───────────────────────────────────────────────────────────────
+interface NewsItem {
+  id: string;
+  title: string;
+  url: string;
+  imageurl: string;
+  source: string;
+  published: number;
+}
+
 const ONBOARD_KEY = 'zero_onboarded_v1';
+
+// ─── useNews hook ─────────────────────────────────────────────────────────────
+function useNews() {
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    const ctrl = new AbortController();
+    fetch('https://min-api.cryptocompare.com/data/v2/news/?lang=EN&sortOrder=popular&limit=6', { signal: ctrl.signal })
+      .then(r => r.json())
+      .then((d: { Data?: Array<{ id: string; title: string; url: string; imageurl: string; source_info?: { name: string }; published_on: number }> }) => {
+        if (!mountedRef.current) return;
+        const items: NewsItem[] = (d.Data ?? []).slice(0, 6).map(n => ({
+          id:        String(n.id),
+          title:     n.title,
+          url:       n.url,
+          imageurl:  n.imageurl,
+          source:    n.source_info?.name ?? '',
+          published: n.published_on * 1000,
+        }));
+        setNews(items);
+      })
+      .catch(() => {});
+    return () => { mountedRef.current = false; ctrl.abort(); };
+  }, []);
+  return news;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -384,6 +459,7 @@ const HomeDashboard = memo(({
   // Top Movers tab + search
   const [moversTab, setMoversTab]   = useState<'gainers' | 'losers' | 'all'>('all');
   const [search, setSearch]         = useState('');
+  const news                        = useNews();
 
   // F&G tooltip
   const [showFgTip, setShowFgTip]   = useState(false);
@@ -568,11 +644,12 @@ const HomeDashboard = memo(({
                         BEST
                       </div>
                     )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
-                      <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, color: isActive ? meta.color : COLORS.muted, textTransform: 'uppercase' as const }}>
-                        {meta.label}
-                      </span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      {React.createElement(EX_LOGO[ex], { size: 22 })}
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: isActive ? meta.color : COLORS.border, display: 'inline-block' }} />
+                    </div>
+                    <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.5, color: isActive ? meta.color : COLORS.muted, textTransform: 'uppercase' as const, marginBottom: 6 }}>
+                      {meta.label}
                     </div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.text, marginBottom: 5 }}>
                       {t ? fmtPrice(t.lastPrice) : '—'}
@@ -733,6 +810,53 @@ const HomeDashboard = memo(({
               })}
             </div>
           </section>
+
+          {/* ── Crypto News ── */}
+          {news.length > 0 && (
+            <section style={{ padding: '14px 16px 4px' }}>
+              <SectionTitle label="Crypto News" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {news.map(item => {
+                  const ago = Math.floor((Date.now() - item.published) / 60000);
+                  const agoStr = ago < 60 ? `${ago}m ago` : ago < 1440 ? `${Math.floor(ago/60)}h ago` : `${Math.floor(ago/1440)}d ago`;
+                  return (
+                    <a
+                      key={item.id}
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'flex', gap: 10, alignItems: 'center',
+                        background: COLORS.panel, border: `1px solid ${COLORS.border}`,
+                        borderRadius: 12, padding: '10px 12px',
+                        textDecoration: 'none', WebkitTapHighlightColor: 'transparent',
+                      }}
+                    >
+                      {item.imageurl ? (
+                        <img
+                          src={item.imageurl}
+                          alt=""
+                          style={{ width: 54, height: 54, borderRadius: 8, objectFit: 'cover', flexShrink: 0, background: COLORS.panel2 }}
+                          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div style={{ width: 54, height: 54, borderRadius: 8, background: COLORS.panel2, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📰</div>
+                      )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: COLORS.text, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden', marginBottom: 5 }}>
+                          {item.title}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <span style={{ fontSize: 9, color: COLORS.gold, fontWeight: 700 }}>{item.source}</span>
+                          <span style={{ fontSize: 9, color: COLORS.muted }}>{agoStr}</span>
+                        </div>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           {/* ── Install Strip (v72 preserved) ── */}
           <section style={{ padding: '14px 16px 8px' }}>
