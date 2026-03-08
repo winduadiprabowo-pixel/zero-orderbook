@@ -1,5 +1,5 @@
 /**
- * useMultiExchangeWs.ts — ZERØ ORDER BOOK v63c
+ * useMultiExchangeWs.ts — ZERØ ORDER BOOK v64
  *
  * v62:
  *   1. Real latency tracking — exchange timestamp → browser delta
@@ -8,7 +8,7 @@
  *   4. Heartbeat/ping timeout detection — close dead connections faster
  *   5. visibilitychange: reconnect immediately when tab becomes visible
  *
- * v63c:
+ * v64:
  *   6. Snapshot cache — bids/asks saved to sessionStorage per symbol+exchange
  *      On reconnect: load cache instantly → no blank skeleton while connecting
  *      Badge 'CACHED' shown until live data arrives (isStale flag)
@@ -35,7 +35,7 @@ export interface ExchangeState {
   status:     ConnectionStatus;
   latencyMs:  number | null;
   activeFeed: ExchangeId;
-  isStale:    boolean; // v63c: true = showing cached data, not live yet
+  isStale:    boolean; // v64: true = showing cached data, not live yet
 }
 
 const EMPTY_STATE: ExchangeState = {
@@ -44,18 +44,26 @@ const EMPTY_STATE: ExchangeState = {
   isStale: false,
 };
 
-// ── v63c: Snapshot cache helpers ──────────────────────────────────────────────
+// ── v64: Snapshot cache helpers ──────────────────────────────────────────────
 // sessionStorage: cleared when tab closes, no stale data across sessions
 
 function snapKey(exchange: ExchangeId, symbol: string): string {
   return `zero_snap_${exchange}_${symbol}`;
 }
 
+// v64: throttle — max 1 write per 2s (prevents 60fps sessionStorage hammering on mobile)
+const snapThrottleMap = new Map<string, number>();
+
 function saveSnapshot(exchange: ExchangeId, symbol: string, bids: OrderBookLevel2[], asks: OrderBookLevel2[]): void {
   if (!bids.length || !asks.length) return;
+  const key = snapKey(exchange, symbol);
+  const now = Date.now();
+  const last = snapThrottleMap.get(key) ?? 0;
+  if (now - last < 2000) return; // throttle: skip if written < 2s ago
+  snapThrottleMap.set(key, now);
   try {
-    const snap = { bids: bids.slice(0, 20), asks: asks.slice(0, 20), ts: Date.now() };
-    sessionStorage.setItem(snapKey(exchange, symbol), JSON.stringify(snap));
+    const snap = { bids: bids.slice(0, 20), asks: asks.slice(0, 20), ts: now };
+    sessionStorage.setItem(key, JSON.stringify(snap));
   } catch { /* storage full or unavailable — silently skip */ }
 }
 
@@ -349,7 +357,7 @@ export function useMultiExchangeWs(
       if (draft.cvdPoints) next.cvdPoints = draft.cvdPoints;
       // v62: update latency from EMA ref
       if (latencyEmaRef.current !== null) next.latencyMs = latencyEmaRef.current;
-      // v63c: first live bids/asks → clear stale flag + save snapshot
+      // v64: first live bids/asks → clear stale flag + save snapshot
       if ((draft.bids || draft.asks) && next.bids.length && next.asks.length) {
         next.isStale = false;
         saveSnapshot(activeFeedRef.current, symbolRef.current, next.bids, next.asks);
@@ -518,7 +526,7 @@ export function useMultiExchangeWs(
     prevPrice24h.current = 0;
     queueRef.current     = [];
 
-    // v63c: Load snapshot cache — show stale data immediately while connecting
+    // v64: Load snapshot cache — show stale data immediately while connecting
     const cached = loadSnapshot(exchange, symbol);
     if (cached) {
       setState({ ...EMPTY_STATE, activeFeed: exchange, bids: cached.bids, asks: cached.asks, isStale: true });
