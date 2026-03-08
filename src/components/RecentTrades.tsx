@@ -1,13 +1,12 @@
 /**
- * RecentTrades.tsx — ZERØ ORDER BOOK v60
- * PERF: Remove slide-in-top per-row (animation tiap trade = GPU overload)
- * PERF: Remove useMemo for timeStr (overhead > savings for static value)
- * PERF: Math.max via loop not spread (no stack overflow on large arrays)
+ * RecentTrades.tsx — ZERØ ORDER BOOK v63
+ * v63: Skeleton shimmer ganti "Waiting for trades..."
  * rgba() only ✓ · React.memo ✓ · displayName ✓
  */
 
 import React, { useMemo } from 'react';
 import type { Trade } from '@/types/market';
+import { SkeletonTrades } from './Skeleton';
 
 interface RecentTradesProps { trades: Trade[] }
 
@@ -56,11 +55,7 @@ const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ trades }) => {
         {display.map((t) => (
           <TradeRow key={t.id} trade={t} maxSize={maxSize} />
         ))}
-        {!display.length && (
-          <div style={{ padding: '20px', textAlign: 'center', color: 'rgba(255,255,255,0.16)', fontSize: '10px' }}>
-            Waiting for trades...
-          </div>
-        )}
+        {!display.length && <SkeletonTrades />}
       </div>
     </div>
   );
