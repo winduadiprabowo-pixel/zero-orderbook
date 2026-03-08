@@ -42,6 +42,7 @@ import {
   type Interval,
   type Precision,
   type ConnectionStatus,
+  type SymbolInfo,
 } from '@/types/market';
 
 // ── Mobile tabs ───────────────────────────────────────────────────────────────
@@ -214,7 +215,73 @@ PanelHeader.displayName = 'PanelHeader';
 
 // ── Mobile Market List ────────────────────────────────────────────────────────
 
-import type { SymbolInfo } from '@/types/market';
+// ── Hero Carousel — top 8 pairs swipeable ────────────────────────────────────
+// v63: Grok suggestion — quick pair switch tanpa scroll list panjang
+
+const HERO_PAIRS = PINNED_SYMBOLS.slice(0, 8) as readonly SymbolInfo[];
+
+const HeroPairCard: React.FC<{
+  item:      SymbolInfo;
+  isActive:  boolean;
+  onSelect:  (sym: string) => void;
+  tickerMap: TickerMap;
+}> = React.memo(({ item, isActive, onSelect, tickerMap }) => {
+  const handleClick = useCallback(() => onSelect(item.symbol), [item.symbol, onSelect]);
+  const snap      = tickerMap.get(item.symbol.toUpperCase());
+  const price     = snap?.lastPrice ?? 0;
+  const changePct = snap?.changePct ?? 0;
+  const isUp      = changePct >= 0;
+
+  return (
+    <button
+      onClick={handleClick}
+      aria-label={`Switch to ${item.label}`}
+      style={{
+        flexShrink: 0,
+        width: '96px', minHeight: '72px',
+        padding: '8px 10px 7px',
+        background: isActive ? 'rgba(242,162,33,0.10)' : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${isActive ? 'rgba(242,162,33,0.40)' : 'rgba(255,255,255,0.07)'}`,
+        borderRadius: '8px', cursor: 'pointer', fontFamily: 'inherit',
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '5px',
+        WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation',
+        transition: 'border-color 120ms, background 120ms',
+        scrollSnapAlign: 'start',
+      }}
+    >
+      <span style={{
+        fontSize: '12px', fontWeight: 800, letterSpacing: '-0.01em',
+        color: isActive ? 'rgba(242,162,33,1)' : 'rgba(255,255,255,0.88)',
+      }}>
+        {item.base}
+      </span>
+      {price > 0 ? (
+        <span className="mono-num" style={{
+          fontSize: item.base.length > 3 ? '10px' : '11px', fontWeight: 700,
+          color: isUp ? 'rgba(0,220,130,1)' : 'rgba(239,83,80,1)',
+          letterSpacing: '-0.01em', lineHeight: 1.1,
+        }}>
+          {formatPrice(price)}
+        </span>
+      ) : (
+        <div className="skeleton-shimmer" style={{ width: '58px', height: '9px', borderRadius: 2 }} />
+      )}
+      {price > 0 ? (
+        <span style={{
+          fontSize: '10px', fontWeight: 700, letterSpacing: '0.01em',
+          color: isUp ? 'rgba(0,220,130,1)' : 'rgba(239,83,80,1)',
+          padding: '2px 5px', borderRadius: '4px',
+          background: isUp ? 'rgba(0,220,130,0.10)' : 'rgba(239,83,80,0.10)',
+        }}>
+          {isUp ? '+' : ''}{changePct.toFixed(2)}%
+        </span>
+      ) : (
+        <div className="skeleton-shimmer" style={{ width: '40px', height: '16px', borderRadius: 4 }} />
+      )}
+    </button>
+  );
+});
+HeroPairCard.displayName = 'HeroPairCard';
 
 const MobileMarketRow: React.FC<{
   item:      SymbolInfo;
@@ -321,6 +388,32 @@ const MobileMarketList: React.FC<{
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(10,11,20,1)' }}>
+      {/* ── Hero carousel — swipe to quick-switch pair ── */}
+      <div
+        style={{
+          flexShrink: 0,
+          padding: '10px 14px 10px',
+          overflowX: 'auto',
+          display: 'flex',
+          gap: '8px',
+          scrollSnapType: 'x mandatory',
+          WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'],
+        }}
+        className="hide-scrollbar"
+        aria-label="Quick pair selector"
+      >
+        {HERO_PAIRS.map((item) => (
+          <HeroPairCard
+            key={item.symbol}
+            item={item}
+            isActive={activeSymbol === item.symbol}
+            onSelect={onSelect}
+            tickerMap={tickerMap}
+          />
+        ))}
+      </div>
+      <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)', flexShrink: 0 }} />
+
       {/* Search bar — Bybit style */}
       <div style={{
         padding: '12px 14px 10px',
