@@ -1,0 +1,47 @@
+{
+  "name": "ZERØ ORDER BOOK",
+  "short_name": "ZERØ OB",
+  "description": "Real-time crypto order flow. No noise. Just alpha.",
+  "start_url": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0d1017",
+  "theme_color": "#0d1017",
+  "categories": ["finance", "utilities"],
+  "lang": "en",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='36' fill='%230d1017'/%3E%3Crect width='192' height='192' rx='36' fill='none' stroke='rgba(242,142,44,0.5)' stroke-width='8'/%3E%3Ctext x='96' y='135' text-anchor='middle' font-family='monospace' font-size='110' font-weight='900' fill='rgba(242,162,33,1)'%3E%C3%98%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%230d1017'/%3E%3Crect width='512' height='512' rx='96' fill='none' stroke='rgba(242,142,44,0.5)' stroke-width='20'/%3E%3Ctext x='256' y='360' text-anchor='middle' font-family='monospace' font-size='300' font-weight='900' fill='rgba(242,162,33,1)'%3E%C3%98%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "label": "ZERØ ORDER BOOK — Real-time crypto order flow",
+      "form_factor": "wide"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "BTC/USDT",
+      "url": "/?symbol=btcusdt",
+      "description": "Open BTC/USDT order book"
+    },
+    {
+      "name": "ETH/USDT",
+      "url": "/?symbol=ethusdt",
+      "description": "Open ETH/USDT order book"
+    }
+  ],
+  "prefer_related_applications": false
+}
