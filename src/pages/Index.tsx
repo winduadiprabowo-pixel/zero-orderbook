@@ -665,7 +665,7 @@ const PwaInstallBanner: React.FC = React.memo(() => {
 PwaInstallBanner.displayName = 'PwaInstallBanner';
 
 const Index: React.FC = () => {
-  const { isPro, unlock }      = useProAccess();
+  const { isPro, isUnlocked, trialActive, trialSecsLeft, trialShown, startTrial, unlock } = useProAccess();
   const [showProModal,  setShowProModal]  = useState(false);
   // v54: thermal monitor — reduce levels when FPS drops
   const [throttleFactor, setThrottleFactor] = useState<1.0 | 0.8 | 0.5>(1.0);
@@ -835,6 +835,30 @@ const Index: React.FC = () => {
   const handleCloseProModal   = useCallback(() => setShowProModal(false), []);
   const handleUnlock          = useCallback((key: string) => { unlock(key); setShowProModal(false); }, [unlock]);
 
+  // ── v81: keyboard shortcuts (desktop) ────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Ignore if focus is in an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      switch (e.key.toLowerCase()) {
+        case 'b': setMobileTab('book');    break;  // B = Book
+        case 'd': setMobileTab('depth');   break;  // D = Depth
+        case 't': setMobileTab('trades');  break;  // T = Trades
+        case 'c': setMobileTab('cvd');     break;  // C = CVD
+        case 'l': setMobileTab('liqs');    break;  // L = Liqs
+        case 'h': setMobileTab('home');    break;  // H = Home
+        case 'm': setMobileTab('markets'); break;  // M = Markets
+        case 'p': handleOpenProModal();    break;  // P = Pro
+        case '/': setShowMarkets(true);    break;  // / = search
+        case 'escape': setShowMarkets(false); setShowProModal(false); break;
+        default: break;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleOpenProModal]);
+
   const P: React.CSSProperties = {
     background: 'rgba(16,19,28,1)',
     display: 'flex', flexDirection: 'column',
@@ -870,7 +894,7 @@ const Index: React.FC = () => {
 
   // depthPanel: bids/asks/mid — same cadence as orderbook, OK
   const depthPanel = useMemo(() => (
-    <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="DEPTH CHART">
+    <ProLock isPro={isUnlocked} onClickPro={handleOpenProModal} onStartTrial={startTrial} trialShown={trialShown} label="DEPTH CHART">
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(16,19,28,1)' }}>
         <PanelHeader title="DEPTH CHART" />
         <div style={{ flex: 1, minHeight: 0 }}>
@@ -892,14 +916,14 @@ const Index: React.FC = () => {
 
   // liqsPanel: liqs only
   const liqsPanel = useMemo(() => (
-    <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="LIQUIDATION FEED">
+    <ProLock isPro={isUnlocked} onClickPro={handleOpenProModal} onStartTrial={startTrial} trialShown={trialShown} label="LIQUIDATION FEED">
       <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />
     </ProLock>
   ), [isPro, handleOpenProModal, liqEvents, liqStats, liqStatus]);
 
   // marketDataPanel: ticker + symbolInfo only
   const marketDataPanel = useMemo(() => (
-    <ProLock isPro={isPro} onClickPro={handleOpenProModal} label="MARKET DATA">
+    <ProLock isPro={isUnlocked} onClickPro={handleOpenProModal} onStartTrial={startTrial} trialShown={trialShown} label="MARKET DATA">
       <div style={{ ...P, overflowY: 'auto' }} className="hide-scrollbar">
         <MarketData ticker={ticker} symbolInfo={symbolInfo} />
       </div>
@@ -931,6 +955,34 @@ const Index: React.FC = () => {
       />
       <ConnectionBanner status={overallStatus} onRetry={obRetry} />
       <PwaInstallBanner />
+
+      {/* v81: Trial active banner */}
+      {trialActive && !isPro && (
+        <div style={{
+          background: 'rgba(242,162,33,0.10)',
+          borderBottom: '1px solid rgba(242,162,33,0.25)',
+          padding: '5px 16px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          fontFamily: '"IBM Plex Mono", monospace',
+          flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 10, color: 'rgba(242,162,33,0.9)', letterSpacing: '0.06em' }}>
+            ⏱ PRO TRIAL — {Math.floor(trialSecsLeft / 60)}:{String(trialSecsLeft % 60).padStart(2, '0')} remaining
+          </span>
+          <button
+            onClick={handleOpenProModal}
+            style={{
+              fontSize: 9, fontWeight: 800, letterSpacing: '0.08em',
+              color: 'rgba(242,162,33,1)', background: 'rgba(242,162,33,0.15)',
+              border: '1px solid rgba(242,162,33,0.35)', borderRadius: 4,
+              padding: '3px 10px', cursor: 'pointer',
+              fontFamily: '"IBM Plex Mono", monospace',
+            }}
+          >
+            UNLOCK $9 LIFETIME →
+          </button>
+        </div>
+      )}
 
       {showProModal && (
         <LicenseModal onUnlock={handleUnlock} onClose={handleCloseProModal} />
