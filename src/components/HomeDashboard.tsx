@@ -1074,6 +1074,54 @@ const HomeDashboard = memo(({
             </div>
           </section>
 
+          {/* ── v81: Exchange Health Status ── */}
+          <section style={{ padding: '4px 16px 8px' }}>
+            <div style={{
+              background: COLORS.panel, border: `1px solid ${COLORS.border}`,
+              borderRadius: 14, padding: '11px 14px',
+            }}>
+              <div style={{ fontSize: 8.5, letterSpacing: 2, color: COLORS.muted, marginBottom: 8, fontWeight: 700 }}>DATA FEED</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+                {(['binance', 'bybit', 'okx'] as const).map(ex => {
+                  const ep    = exchangePrices[ex];
+                  const ok    = !ep.loading && ep.lastPrice > 0;
+                  const color = ok ? 'rgba(0,255,157,1)' : 'rgba(255,255,255,0.25)';
+                  const label = ex === 'binance' ? 'Binance' : ex === 'bybit' ? 'Bybit' : 'OKX';
+                  return (
+                    <div key={ex} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block', boxShadow: ok ? `0 0 6px ${color}` : 'none' }} />
+                      <span style={{ fontSize: 9, fontWeight: 700, color: ok ? COLORS.text : COLORS.muted, letterSpacing: '0.04em' }}>{label}</span>
+                      {ok && ep.lastPrice > 0 && (
+                        <span style={{ fontSize: 8.5, color: COLORS.muted }}>
+                          ${ep.lastPrice.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 8, color: COLORS.muted, marginTop: 7, lineHeight: 1.5 }}>
+                Real-time via public WebSocket · Bybit / Binance / OKX · ~50–150ms latency
+              </div>
+            </div>
+          </section>
+
+          {/* ── v81: Footer Disclaimer ── */}
+          <section style={{ padding: '4px 16px 12px' }}>
+            <div style={{ fontSize: 8.5, color: 'rgba(255,255,255,0.15)', lineHeight: 1.7, textAlign: 'center' as const, letterSpacing: '0.03em' }}>
+              Not financial advice · Data from public exchange APIs<br />
+              Use at your own risk · ZERØ ORDER BOOK by{' '}
+              <a
+                href="https://github.com/winduadiprabowo-pixel/zero-orderbook"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'rgba(255,255,255,0.28)', textDecoration: 'underline' }}
+              >
+                @winduadiprabowo
+              </a>
+            </div>
+          </section>
+
         </div>
       </PullToRefresh>
     </>
