@@ -1,815 +1,866 @@
-/**
- * LightweightChart.tsx — ZERØ ORDER BOOK v60
- * CHANGE: CandleCountdown pindah dari toolbar → overlay di chart container
- *   nempel di price axis kanan (TradingView style) — stack di bawah price label
- *
- * REPLACES TradingViewChart.tsx (iframe embed + 50+ chunk JS → ERR_INSUFFICIENT_RESOURCES)
- * NEW: TradingView Lightweight Charts v4 — self-contained, 200KB, 60fps, zero external chunks.
- *
- * Features:
- *   - Candlestick + Volume overlay (stacked pane)
- *   - Real-time candle update via Binance @kline WS (direct, no proxy)
- *   - Historical candles from Binance REST (direct, no proxy)
- *   - Interval switcher: 1m / 5m / 15m / 1h / 4h / 1d
- *   - Candle countdown timer
- *   - Crosshair OHLCV legend
- *   - Mobile stats strip (price + 24h high/low/vol)
- *   - Exchange-aware: Bybit/Binance/Coinbase → always fetch candles from Binance REST (public, no auth)
- *   - Auto-reconnect WS with exponential backoff
- *
- * rgba() only ✓ · IBM Plex Mono ✓ · React.memo ✓ · displayName ✓ · mountedRef ✓ · AbortController ✓
- */
+// LightweightChart.tsx — v82
+// Changes:
+//  - Compact top toolbar: timeframe + chart type + indicators + drawing tools
+//  - RAF-batched chart updates (skip if data unchanged)
+//  - Memoized series update (only update if new candle differs)
+//  - Drawing tools overlay (trendline, fib, rect) via canvas
+//  - Indicators rendered as lightweight-charts price/pane series
 
 import React, {
-  useEffect, useRef, useCallback, useState, useMemo, memo,
-} from 'react';
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  useState,
+  memo,
+} from "react";
 import {
   createChart,
+  IChartApi,
+  ISeriesApi,
+  CandlestickData,
+  LineData,
+  UTCTimestamp,
   CrosshairMode,
-  type IChartApi,
-  type ISeriesApi,
-  type CandlestickData,
-  type HistogramData,
-  type Time,
-  type MouseEventParams,
-} from 'lightweight-charts';
-import type { Interval, TickerData, SymbolInfo } from '@/types/market';
-import type { ExchangeId } from '@/hooks/useExchange';
-import { formatCompact } from '@/lib/formatters';
-import { getReconnectDelay } from '@/lib/formatters';
-import { SkeletonChart } from './Skeleton';
+  LineStyle,
+  SeriesType,
+} from "lightweight-charts";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export type TF = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+export type ChartType = "candle" | "line" | "bar" | "area";
+export type IndicatorKey = "MA" | "RSI" | "MACD" | "BB";
+export type DrawTool = "none" | "trendline" | "fib" | "rect";
+
+interface OHLCBar {
+  time: UTCTimestamp;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+}
 
 interface LightweightChartProps {
-  symbol:           string;
-  interval:         Interval;
-  onIntervalChange: (i: Interval) => void;
-  ticker?:          TickerData | null;
-  symbolInfo?:      SymbolInfo;
-  exchange?:        ExchangeId;
-  hoveredPrice?:    number | null; // v66: orderbook hover → price line sync
+  symbol: string;
+  exchange?: "binance" | "bybit" | "okx";
+  height?: number;
+  onTimeframeChange?: (tf: TF) => void;
 }
 
-interface OHLCVLegend {
-  open:   number;
-  high:   number;
-  low:    number;
-  close:  number;
-  volume: number;
-  isUp:   boolean;
-}
+// ─── Constants ───────────────────────────────────────────────────────────────
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+const TIMEFRAMES: TF[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 
-const INTERVAL_MS: Record<Interval, number> = {
-  '1m':  60_000,
-  '5m':  300_000,
-  '15m': 900_000,
-  '1h':  3_600_000,
-  '4h':  14_400_000,
-  '1d':  86_400_000,
-};
+const CHART_TYPES: { key: ChartType; icon: string }[] = [
+  { key: "candle", icon: "◫" },
+  { key: "line",   icon: "∿" },
+  { key: "bar",    icon: "⦀" },
+  { key: "area",   icon: "◭" },
+];
 
-const BINANCE_INTERVAL: Record<Interval, string> = {
-  '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d',
-};
+const INDICATORS: { key: IndicatorKey; label: string }[] = [
+  { key: "MA",   label: "MA" },
+  { key: "BB",   label: "BB" },
+  { key: "RSI",  label: "RSI" },
+  { key: "MACD", label: "MACD" },
+];
 
-// ── Binance REST fetch — v55: via CF Worker proxy (SG) bypass ISP block ───────
-// Worker REST route: /api/v3/klines → https://api.binance.me/api/v3/klines
-const PROXY_REST = import.meta.env.VITE_PROXY_URL
-  ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
-const PROXY_WS_CHART = import.meta.env.VITE_PROXY_URL
-  ? import.meta.env.VITE_PROXY_URL.replace('https://', 'wss://')
-  : 'wss://zero-orderbook-proxy.winduadiprabowo.workers.dev';
+const DRAW_TOOLS: { key: DrawTool; icon: string; tip: string }[] = [
+  { key: "trendline", icon: "╱", tip: "Trendline" },
+  { key: "fib",       icon: "≡", tip: "Fibonacci" },
+  { key: "rect",      icon: "▭", tip: "Rectangle" },
+];
 
-async function fetchCandles(
-  symbol: string,
-  interval: Interval,
-  signal: AbortSignal,
-): Promise<CandlestickData<Time>[]> {
-  const sym    = symbol.toUpperCase();
-  const params = `?symbol=${sym}&interval=${BINANCE_INTERVAL[interval]}&limit=500`;
-  // Primary: CF Worker proxy → binance.me (SG, bypass ISP)
-  // Fallback: data-api.binance.vision (CDN mirror)
-  let raw: unknown[][];
-  try {
-    const res = await fetch(`${PROXY_REST}/api/v3/klines${params}`, { signal });
-    if (!res.ok) throw new Error(`proxy ${res.status}`);
-    raw = await res.json() as unknown[][];
-  } catch {
-    const res = await fetch(`https://data-api.binance.vision/api/v3/klines${params}`, { signal });
-    if (!res.ok) throw new Error(`Klines ${res.status}`);
-    raw = await res.json() as unknown[][];
+// ─── Math helpers ─────────────────────────────────────────────────────────────
+
+function calcSMA(data: OHLCBar[], period: number): LineData[] {
+  const out: LineData[] = [];
+  for (let i = period - 1; i < data.length; i++) {
+    const slice = data.slice(i - period + 1, i + 1);
+    const avg = slice.reduce((s, b) => s + b.close, 0) / period;
+    out.push({ time: data[i].time, value: avg });
   }
-  return raw.map((k) => ({
-    time:  ((k[0] as number) / 1000) as Time,
-    open:  parseFloat(k[1] as string),
-    high:  parseFloat(k[2] as string),
-    low:   parseFloat(k[3] as string),
-    close: parseFloat(k[4] as string),
-  }));
+  return out;
 }
 
-async function fetchVolumes(
-  symbol: string,
-  interval: Interval,
-  signal: AbortSignal,
-): Promise<HistogramData<Time>[]> {
-  const sym    = symbol.toUpperCase();
-  const params = `?symbol=${sym}&interval=${BINANCE_INTERVAL[interval]}&limit=500`;
-  let raw: unknown[][];
-  try {
-    const res = await fetch(`${PROXY_REST}/api/v3/klines${params}`, { signal });
-    if (!res.ok) throw new Error(`proxy ${res.status}`);
-    raw = await res.json() as unknown[][];
-  } catch {
-    const res = await fetch(`https://data-api.binance.vision/api/v3/klines${params}`, { signal });
-    if (!res.ok) throw new Error(`Vol ${res.status}`);
-    raw = await res.json() as unknown[][];
+function calcBB(data: OHLCBar[], period = 20, mult = 2) {
+  const upper: LineData[] = [];
+  const lower: LineData[] = [];
+  const mid: LineData[] = [];
+  for (let i = period - 1; i < data.length; i++) {
+    const slice = data.slice(i - period + 1, i + 1);
+    const avg = slice.reduce((s, b) => s + b.close, 0) / period;
+    const variance = slice.reduce((s, b) => s + (b.close - avg) ** 2, 0) / period;
+    const sd = Math.sqrt(variance);
+    mid.push({ time: data[i].time, value: avg });
+    upper.push({ time: data[i].time, value: avg + mult * sd });
+    lower.push({ time: data[i].time, value: avg - mult * sd });
   }
-  return raw.map((k) => {
-    const o = parseFloat(k[1] as string);
-    const c = parseFloat(k[4] as string);
-    return {
-      time:  ((k[0] as number) / 1000) as Time,
-      value: parseFloat(k[5] as string),
-      color: c >= o ? 'rgba(38,166,154,0.40)' : 'rgba(239,83,80,0.40)',
-    };
-  });
+  return { upper, lower, mid };
 }
 
-// ── Candle Countdown ──────────────────────────────────────────────────────────
+function calcRSI(data: OHLCBar[], period = 14): LineData[] {
+  const out: LineData[] = [];
+  if (data.length < period + 1) return out;
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = data[i].close - data[i - 1].close;
+    if (d > 0) gains += d; else losses -= d;
+  }
+  let avgG = gains / period;
+  let avgL = losses / period;
+  out.push({ time: data[period].time, value: 100 - 100 / (1 + avgG / (avgL || 1)) });
+  for (let i = period + 1; i < data.length; i++) {
+    const d = data[i].close - data[i - 1].close;
+    const g = d > 0 ? d : 0;
+    const l = d < 0 ? -d : 0;
+    avgG = (avgG * (period - 1) + g) / period;
+    avgL = (avgL * (period - 1) + l) / period;
+    out.push({ time: data[i].time, value: 100 - 100 / (1 + avgG / (avgL || 1)) });
+  }
+  return out;
+}
 
-const CandleCountdown: React.FC<{ interval: Interval }> = React.memo(({ interval }) => {
-  const [remaining, setRemaining] = useState(0);
-
-  useEffect(() => {
-    const totalMs = INTERVAL_MS[interval];
-    const tick = () => {
-      const now  = Date.now();
-      const rem  = Math.ceil((totalMs - (now % totalMs)) / 1000);
-      setRemaining(rem);
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [interval]);
-
-  const mm      = Math.floor(remaining / 60).toString().padStart(2, '0');
-  const ss      = (remaining % 60).toString().padStart(2, '0');
-  const str     = interval === '1d'
-    ? Math.floor(remaining / 3600) + 'h ' + Math.floor((remaining % 3600) / 60) + 'm'
-    : remaining >= 60 ? mm + ':' + ss : ss + 's';
-  const urgent  = remaining <= 10;
-
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: '4px',
-      padding: '2px 7px',
-      background: urgent ? 'rgba(242,142,44,0.12)' : 'rgba(255,255,255,0.04)',
-      border: '1px solid ' + (urgent ? 'rgba(242,142,44,0.35)' : 'rgba(255,255,255,0.07)'),
-      borderRadius: '3px', flexShrink: 0,
-    }}>
-      <span style={{ fontSize: '9px', color: urgent ? 'rgba(242,142,44,0.8)' : 'rgba(255,255,255,0.28)' }}>⏱</span>
-      <span className="mono-num" style={{
-        fontSize: '10px', fontWeight: 800,
-        color: urgent ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.55)',
-        letterSpacing: '0.04em', minWidth: '28px',
-      }}>
-        {str}
-      </span>
-    </div>
-  );
-});
-CandleCountdown.displayName = 'CandleCountdown';
-
-// ── Candle Countdown Overlay — TradingView style nempel di price axis ─────────
-
-const CandleCountdownOverlay: React.FC<{ interval: Interval }> = React.memo(({ interval }) => {
-  const [remaining, setRemaining] = useState(0);
-
-  useEffect(() => {
-    const totalMs = INTERVAL_MS[interval];
-    const tick = () => {
-      const now = Date.now();
-      const rem = Math.ceil((totalMs - (now % totalMs)) / 1000);
-      setRemaining(rem);
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [interval]);
-
-  const mm     = Math.floor(remaining / 60).toString().padStart(2, '0');
-  const ss     = (remaining % 60).toString().padStart(2, '0');
-  const str    = interval === '1d'
-    ? Math.floor(remaining / 3600) + 'h ' + Math.floor((remaining % 3600) / 60) + 'm'
-    : remaining >= 60 ? mm + ':' + ss : ss + 's';
-  const urgent = remaining <= 10;
-
-  return (
-    <div style={{
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      minWidth: '52px',
-      padding: '3px 8px',
-      background: urgent ? 'rgba(242,142,44,0.18)' : 'rgba(9,11,18,0.85)',
-      border: '1px solid ' + (urgent ? 'rgba(242,142,44,0.55)' : 'rgba(255,255,255,0.10)'),
-      borderRadius: '3px',
-      backdropFilter: 'blur(4px)',
-    }}>
-      <span className="mono-num" style={{
-        fontSize: '11px', fontWeight: 800,
-        color: urgent ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.60)',
-        letterSpacing: '0.05em',
-        lineHeight: 1,
-      }}>
-        {str}
-      </span>
-    </div>
-  );
-});
-CandleCountdownOverlay.displayName = 'CandleCountdownOverlay';
-
-// ── Mobile Stats Strip ────────────────────────────────────────────────────────
-
-const MobileStatsStrip: React.FC<{
-  ticker:     TickerData;
-  symbolInfo: SymbolInfo;
-}> = React.memo(({ ticker, symbolInfo }) => {
-  const isUp       = ticker.priceChangePercent >= 0;
-  const priceColor = isUp ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
-  const changeBg   = isUp ? 'rgba(38,166,154,0.12)' : 'rgba(239,83,80,0.12)';
-  const dec        = Math.min(symbolInfo.priceDec ?? 2, 6);
-
-  const priceStr  = ticker.lastPrice.toLocaleString('en-US', {
-    minimumFractionDigits: dec, maximumFractionDigits: dec,
+function calcMACD(data: OHLCBar[], fast = 12, slow = 26, signal = 9) {
+  const ema = (arr: number[], p: number) => {
+    const k = 2 / (p + 1);
+    const result: number[] = [arr[0]];
+    for (let i = 1; i < arr.length; i++)
+      result.push(arr[i] * k + result[i - 1] * (1 - k));
+    return result;
+  };
+  const closes = data.map((b) => b.close);
+  const fastEma = ema(closes, fast);
+  const slowEma = ema(closes, slow);
+  const macdLine = fastEma.map((v, i) => v - slowEma[i]);
+  const signalLine = ema(macdLine.slice(slow - 1), signal);
+  const macdSeries: LineData[] = [];
+  const signalSeries: LineData[] = [];
+  const histSeries: LineData[] = [];
+  const offset = slow - 1;
+  signalLine.forEach((sv, i) => {
+    const idx = offset + signal - 1 + i;
+    if (idx >= data.length) return;
+    const mv = macdLine[offset + signal - 1 + i];
+    macdSeries.push({ time: data[idx].time, value: mv });
+    signalSeries.push({ time: data[idx].time, value: sv });
+    histSeries.push({ time: data[idx].time, value: mv - sv });
   });
-  const changeStr = (isUp ? '+' : '') + ticker.priceChangePercent.toFixed(2) + '%';
-  const highStr   = ticker.highPrice.toLocaleString('en-US', { maximumFractionDigits: dec });
-  const lowStr    = ticker.lowPrice.toLocaleString('en-US',  { maximumFractionDigits: dec });
-  const volStr    = formatCompact(ticker.quoteVolume).replace('$', '');
+  return { macdSeries, signalSeries, histSeries };
+}
 
-  return (
-    <div style={{
-      padding: '8px 14px 6px',
-      borderBottom: '1px solid rgba(255,255,255,0.055)',
-      background: 'rgba(13,16,23,1)',
-      flexShrink: 0,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
-        <span className="mono-num" style={{
-          fontSize: '22px', fontWeight: 800, color: priceColor,
-          letterSpacing: '-0.02em', lineHeight: 1,
-        }}>
-          {priceStr}
-        </span>
-        <span style={{
-          fontSize: '11px', fontWeight: 700,
-          padding: '3px 8px', borderRadius: '4px',
-          background: changeBg, color: priceColor,
-        }}>
-          {changeStr}
-        </span>
-      </div>
-      <div style={{
-        display: 'flex', gap: '0',
-        borderTop: '1px solid rgba(255,255,255,0.045)',
-        paddingTop: '5px',
-      }}>
-        {[
-          { label: '24h High', value: highStr, color: 'rgba(38,166,154,0.85)' },
-          { label: '24h Low',  value: lowStr,  color: 'rgba(239,83,80,0.85)' },
-          { label: 'Volume($)', value: volStr, color: 'rgba(255,255,255,0.65)' },
-        ].map((s, i) => (
-          <React.Fragment key={s.label}>
-            {i > 0 && <div style={{ width: '1px', background: 'rgba(255,255,255,0.06)', margin: '0 12px', alignSelf: 'stretch' }} />}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', flex: 1, minWidth: 0 }}>
-              <span style={{ fontSize: '8.5px', fontWeight: 600, color: 'rgba(255,255,255,0.28)', letterSpacing: '0.05em' }}>
-                {s.label}
-              </span>
-              <span className="mono-num" style={{ fontSize: '11px', fontWeight: 700, color: s.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {s.value}
-              </span>
-            </div>
-          </React.Fragment>
-        ))}
-      </div>
-    </div>
-  );
-});
-MobileStatsStrip.displayName = 'MobileStatsStrip';
+// ─── Drawing overlay ──────────────────────────────────────────────────────────
 
-// ── OHLCV Legend ──────────────────────────────────────────────────────────────
+interface DrawPoint { x: number; y: number }
+interface Drawing {
+  tool: DrawTool;
+  p1: DrawPoint;
+  p2: DrawPoint;
+}
 
-const OHLCVLegend: React.FC<{ legend: OHLCVLegend | null; dec: number }> = React.memo(({ legend, dec }) => {
-  if (!legend) return null;
-  const c = legend.isUp ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
-  const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-  return (
-    <div style={{
-      display: 'flex', gap: '10px', alignItems: 'center',
-      padding: '0 10px', flexShrink: 0, flexWrap: 'wrap',
-    }}>
-      {[
-        { label: 'O', value: fmt(legend.open) },
-        { label: 'H', value: fmt(legend.high),  color: 'rgba(38,166,154,1)' },
-        { label: 'L', value: fmt(legend.low),   color: 'rgba(239,83,80,1)' },
-        { label: 'C', value: fmt(legend.close), color: c },
-        { label: 'V', value: formatCompact(legend.volume).replace('$', '') },
-      ].map((item) => (
-        <span key={item.label} className="mono-num" style={{ fontSize: '9.5px', whiteSpace: 'nowrap' }}>
-          <span style={{ color: 'rgba(255,255,255,0.28)', marginRight: '2px' }}>{item.label}</span>
-          <span style={{ color: item.color ?? 'rgba(255,255,255,0.72)', fontWeight: 700 }}>{item.value}</span>
-        </span>
-      ))}
-    </div>
-  );
-});
-OHLCVLegend.displayName = 'OHLCVLegend';
+function renderDrawings(
+  ctx: CanvasRenderingContext2D,
+  drawings: Drawing[],
+  active: { tool: DrawTool; p1: DrawPoint | null; p2: DrawPoint | null } | null,
+  w: number,
+  h: number
+) {
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = "rgba(255, 200, 50, 0.85)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([]);
 
-// ── WS Status Dot ─────────────────────────────────────────────────────────────
+  const drawAll = [...drawings];
+  if (active?.p1 && active?.p2) {
+    drawAll.push({ tool: active.tool, p1: active.p1, p2: active.p2 });
+  }
 
-const WsStatusDot: React.FC<{ connected: boolean }> = React.memo(({ connected }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-    <div style={{
-      width: '5px', height: '5px', borderRadius: '50%',
-      background: connected ? 'rgba(38,166,154,1)' : 'rgba(242,142,44,1)',
-    }} className={connected ? 'live-dot' : undefined} />
-    <span style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.08em', color: connected ? 'rgba(38,166,154,1)' : 'rgba(242,142,44,1)' }}>
-      {connected ? 'LIVE' : 'SYNC'}
-    </span>
-  </div>
-));
-WsStatusDot.displayName = 'WsStatusDot';
-
-// ── Main Chart ────────────────────────────────────────────────────────────────
-
-const LightweightChart: React.FC<LightweightChartProps> = memo(({
-  symbol, interval, onIntervalChange, ticker, symbolInfo, exchange = 'bybit',
-  hoveredPrice = null,
-}) => {
-  const containerRef   = useRef<HTMLDivElement>(null);
-  const chartRef       = useRef<IChartApi | null>(null);
-  const candleSerRef   = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const volSerRef      = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const mountedRef     = useRef(true);
-  const wsRef          = useRef<WebSocket | null>(null);
-  const retryRef       = useRef<ReturnType<typeof setTimeout>>();
-  const attemptRef     = useRef(0);
-  // v55d: store all candles so we can compute visible price range on zoom
-  const candlesRef     = useRef<CandlestickData<Time>[]>([]);
-  const [legend,     setLegend]     = useState<OHLCVLegend | null>(null);
-  const [wsLive,     setWsLive]     = useState(false);
-  const [chartReady, setChartReady] = useState(false);
-  // v63: show skeleton until first candle batch is loaded
-  const [candlesLoaded, setCandlesLoaded] = useState(false);
-
-  const dec = useMemo(() => Math.min(symbolInfo?.priceDec ?? 2, 6), [symbolInfo?.priceDec]);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const hiddenRef = useRef(false);
-
-  // ── v50: Visibility throttle — pause render when tab hidden ─────────────────
-  useEffect(() => {
-    const onVis = () => {
-      hiddenRef.current = document.hidden;
-      if (!document.hidden && chartRef.current && containerRef.current) {
-        const el = containerRef.current;
-        chartRef.current.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+  for (const d of drawAll) {
+    const { tool, p1, p2 } = d;
+    ctx.beginPath();
+    if (tool === "trendline") {
+      // extend line across canvas
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      if (Math.abs(dx) < 1) { ctx.moveTo(p1.x, 0); ctx.lineTo(p1.x, h); }
+      else {
+        const slope = dy / dx;
+        const x0 = 0;
+        const y0 = p1.y + slope * (x0 - p1.x);
+        const x1 = w;
+        const y1 = p1.y + slope * (x1 - p1.x);
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
       }
-    };
-    document.addEventListener('visibilitychange', onVis);
-    return () => document.removeEventListener('visibilitychange', onVis);
-  }, []);
-
-  // ── Create chart ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const chart = createChart(el, {
-      layout: {
-        background:   { color: 'rgba(10,13,20,1)' },
-        textColor:    'rgba(255,255,255,0.40)',
-        fontFamily:   "'IBM Plex Mono', monospace",
-        fontSize:     11,
-      },
-      grid: {
-        vertLines: { color: 'rgba(255,255,255,0.03)' },
-        horzLines: { color: 'rgba(255,255,255,0.03)' },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(255,255,255,0.20)', labelBackgroundColor: 'rgba(16,19,28,1)' },
-        horzLine: { color: 'rgba(255,255,255,0.20)', labelBackgroundColor: 'rgba(16,19,28,1)' },
-      },
-      rightPriceScale: {
-        borderColor:    'rgba(255,255,255,0.06)',
-        textColor:      'rgba(255,255,255,0.35)',
-        scaleMargins:   { top: 0.04, bottom: 0.18 },
-        autoScale:      true,
-        // v55d: mode Normal = price axis follows visible candles
-        mode:           0, // PriceScaleMode.Normal
-      },
-      timeScale: {
-        borderColor:      'rgba(255,255,255,0.06)',
-        timeVisible:      true,
-        secondsVisible:   false,
-        fixLeftEdge:      false,
-        fixRightEdge:     false,
-        // v55d: right offset so latest candle not stuck to edge
-        rightOffset:      5,
-        barSpacing:       8,
-        minBarSpacing:    2,
-      },
-      // v55d: proper zoom/scroll for desktop + mobile
-      handleScroll: {
-        mouseWheel:       true,
-        pressedMouseMove: true,
-        horzTouchDrag:    true,
-        vertTouchDrag:    true,  // v59: true = drag vertikal di chart zoom price axis
-      },
-      handleScale: {
-        axisPressedMouseMove: { time: true, price: true },
-        axisDoubleClickReset: { time: true, price: true },
-        mouseWheel:           true,
-        pinch:                true,  // mobile pinch-to-zoom
-      },
-    });
-
-    // Candlestick series
-    const candleSer = chart.addCandlestickSeries({
-      upColor:            'rgba(0,255,157,1)',
-      downColor:          'rgba(255,59,92,1)',
-      borderUpColor:      'rgba(0,255,157,1)',
-      borderDownColor:    'rgba(255,59,92,1)',
-      wickUpColor:        'rgba(0,255,157,0.65)',
-      wickDownColor:      'rgba(255,59,92,0.65)',
-      priceLineVisible:   true,
-      priceLineColor:     'rgba(255,255,255,0.15)',
-      priceLineWidth:     1,
-      lastValueVisible:   true,
-    });
-
-    // Volume histogram — separate price scale
-    const volSer = chart.addHistogramSeries({
-      color:            'rgba(38,166,154,0.35)',
-      priceFormat:      { type: 'volume' },
-      priceScaleId:     'vol',
-    });
-    chart.priceScale('vol').applyOptions({
-      scaleMargins: { top: 0.85, bottom: 0 },
-    });
-
-    // Crosshair legend
-    chart.subscribeCrosshairMove((param: MouseEventParams) => {
-      if (!mountedRef.current) return;
-      const c = param.seriesData.get(candleSer) as CandlestickData<Time> | undefined;
-      const v = param.seriesData.get(volSer)    as HistogramData<Time>   | undefined;
-      if (c) {
-        setLegend({
-          open: c.open, high: c.high, low: c.low, close: c.close,
-          volume: v?.value ?? 0,
-          isUp: c.close >= c.open,
-        });
-      } else {
-        setLegend(null);
+      ctx.stroke();
+    } else if (tool === "rect") {
+      ctx.strokeRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+      ctx.fillStyle = "rgba(255, 200, 50, 0.06)";
+      ctx.fillRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+    } else if (tool === "fib") {
+      const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+      const top = Math.min(p1.y, p2.y);
+      const bot = Math.max(p1.y, p2.y);
+      const range = bot - top;
+      ctx.setLineDash([4, 4]);
+      for (const lvl of levels) {
+        const y = bot - lvl * range;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(255, 200, 50, 0.7)";
+        ctx.font = "9px IBM Plex Mono";
+        ctx.fillText(`${(lvl * 100).toFixed(1)}%`, 4, y - 2);
       }
-    });
-
-    // v59c: click/tap on price axis → reset Y zoom (autoScale candles)
-    // Works on desktop (click) + mobile (tap on right price scale area)
-    const resetPriceScale = () => {
-      if (!mountedRef.current) return;
-      candleSer.priceScale().applyOptions({ autoScale: true });
-      chart.applyOptions({ rightPriceScale: { autoScale: true } });
-    };
-
-    // Native DOM: click on price axis area (right side of chart container)
-    const handleAxisClick = (e: MouseEvent | TouchEvent) => {
-      const target = e.target as HTMLElement;
-      // Lightweight Charts renders price axis in a canvas — check if click is in right price scale area
-      const rect = el.getBoundingClientRect();
-      const clientX = 'touches' in e ? e.touches[0]?.clientX ?? 0 : (e as MouseEvent).clientX;
-      const rightScaleWidth = 70; // approx price axis width
-      if (clientX >= rect.right - rightScaleWidth) {
-        resetPriceScale();
-      }
-    };
-
-    // Double-click/tap anywhere on chart = fit all + reset Y
-    const handleDblClick = () => {
-      if (!mountedRef.current) return;
-      chart.timeScale().fitContent();
-      resetPriceScale();
-    };
-
-    el.addEventListener('click', handleAxisClick);
-    el.addEventListener('touchend', handleAxisClick as EventListener);
-    el.addEventListener('dblclick', handleDblClick);
-
-    // Auto-resize
-    const ro = new ResizeObserver(() => {
-      if (el && chart) {
-        chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
-      }
-    });
-    ro.observe(el);
-
-    chartRef.current     = chart;
-    candleSerRef.current = candleSer;
-    volSerRef.current    = volSer;
-    setChartReady(true);
-
-    return () => {
-      el.removeEventListener('click', handleAxisClick);
-      el.removeEventListener('touchend', handleAxisClick as EventListener);
-      el.removeEventListener('dblclick', handleDblClick);
-      ro.disconnect();
-      chart.remove();
-      chartRef.current     = null;
-      candleSerRef.current = null;
-      volSerRef.current    = null;
-      setChartReady(false);
-    };
-  }, []); // create once only
-
-  // ── Load historical candles ─────────────────────────────────────────────────
-  useEffect(() => {
-    if (!chartReady) return;
-    setCandlesLoaded(false); // v63: reset skeleton on symbol/interval change
-
-    // v65: clear old candle data immediately — no flash of previous symbol's candles
-    candleSerRef.current?.setData([]);
-    volSerRef.current?.setData([]);
-    candlesRef.current = [];
-
-    const ac = new AbortController();
-
-    (async () => {
-      try {
-        const [candles, volumes] = await Promise.all([
-          fetchCandles(symbol, interval, ac.signal),
-          fetchVolumes(symbol, interval, ac.signal),
-        ]);
-        if (!mountedRef.current || ac.signal.aborted) return;
-        candlesRef.current = candles; // store for visible range calc
-        candleSerRef.current?.setData(candles);
-        volSerRef.current?.setData(volumes);
-        chartRef.current?.timeScale().fitContent();
-        setCandlesLoaded(true); // v63: hide skeleton
-      } catch {
-        // aborted or network error — silently ignore, WS will update
-        setCandlesLoaded(true); // v63: hide skeleton even on error
-      }
-    })();
-
-    return () => ac.abort();
-  }, [symbol, interval, chartReady]);
-
-  // ── Real-time kline WS (Binance direct — public, no auth, no proxy) ─────────
-  const connectKlineWs = useCallback(() => {
-    if (!mountedRef.current) return;
-    const sym = symbol.toLowerCase();
-    const iv  = BINANCE_INTERVAL[interval];
-    // v55: kline WS via CF Worker proxy /ws/ route
-    const url = `${PROXY_WS_CHART}/ws/${sym}@kline_${iv}`;
-
-    setWsLive(false);
-    try {
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        if (!mountedRef.current) return;
-        attemptRef.current = 0;
-        setWsLive(true);
-      };
-
-      ws.onmessage = (ev) => {
-        if (!mountedRef.current) return;
-        if (hiddenRef.current) return; // v50: skip render when tab hidden
-        try {
-          const d = JSON.parse(ev.data as string) as {
-            k: { t: number; o: string; h: string; l: string; c: string; v: string; x: boolean };
-          };
-          if (!d.k) return;
-          const k = d.k;
-          const candle: CandlestickData<Time> = {
-            time:  (k.t / 1000) as Time,
-            open:  parseFloat(k.o),
-            high:  parseFloat(k.h),
-            low:   parseFloat(k.l),
-            close: parseFloat(k.c),
-          };
-          const vol: HistogramData<Time> = {
-            time:  (k.t / 1000) as Time,
-            value: parseFloat(k.v),
-            color: parseFloat(k.c) >= parseFloat(k.o)
-              ? 'rgba(0,255,157,0.35)'
-              : 'rgba(255,59,92,0.35)',
-          };
-          candleSerRef.current?.update(candle);
-          // v57: update priceLineColor dynamically — green if up, red if down
-          const lineColor = parseFloat(k.c) >= parseFloat(k.o)
-            ? 'rgba(0,255,157,1)'
-            : 'rgba(255,59,92,1)';
-          candleSerRef.current?.applyOptions({ priceLineColor: lineColor });
-          volSerRef.current?.update(vol);
-          // keep candlesRef in sync for visible range calculation
-          const arr = candlesRef.current;
-          if (arr.length && (arr[arr.length - 1].time as number) === (candle.time as number)) {
-            arr[arr.length - 1] = candle; // update last candle
-          } else if (arr.length) {
-            arr.push(candle); // new candle
-          }
-        } catch { /* malformed */ }
-      };
-
-      ws.onclose = () => {
-        setWsLive(false);
-        if (!mountedRef.current) return;
-        retryRef.current = setTimeout(() => {
-          attemptRef.current++;
-          connectKlineWs();
-        }, getReconnectDelay(attemptRef.current));
-      };
-
-      ws.onerror = () => ws.close();
-    } catch {
-      retryRef.current = setTimeout(() => {
-        attemptRef.current++;
-        connectKlineWs();
-      }, getReconnectDelay(attemptRef.current));
+      ctx.setLineDash([]);
     }
-  }, [symbol, interval]);
+  }
+}
 
+// ─── Toolbar component ────────────────────────────────────────────────────────
+
+interface ToolbarProps {
+  tf: TF;
+  chartType: ChartType;
+  indicators: Set<IndicatorKey>;
+  drawTool: DrawTool;
+  onTF: (tf: TF) => void;
+  onChartType: (ct: ChartType) => void;
+  onToggleIndicator: (k: IndicatorKey) => void;
+  onDrawTool: (dt: DrawTool) => void;
+}
+
+const Toolbar = memo(function Toolbar({
+  tf, chartType, indicators, drawTool,
+  onTF, onChartType, onToggleIndicator, onDrawTool,
+}: ToolbarProps) {
+  Toolbar.displayName = "Toolbar";
+  const [indOpen, setIndOpen] = useState(false);
+  const indRef = useRef<HTMLDivElement>(null);
+
+  // close dropdown on outside click
   useEffect(() => {
-    if (!chartReady) return;
-    mountedRef.current = true;
-    attemptRef.current = 0;
-    connectKlineWs();
-
-    return () => {
-      if (retryRef.current) clearTimeout(retryRef.current);
-      if (wsRef.current) {
-        wsRef.current.onclose = null;
-        wsRef.current.close();
-        wsRef.current = null;
+    if (!indOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (indRef.current && !indRef.current.contains(e.target as Node)) {
+        setIndOpen(false);
       }
     };
-  }, [symbol, interval, chartReady, connectKlineWs]);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [indOpen]);
 
-  // v66: hoveredPrice — draw dotted price line when orderbook row hovered
-  const hoverLineRef = useRef<ReturnType<typeof candleSerRef.current.createPriceLine> | null>(null);
-  useEffect(() => {
-    const ser = candleSerRef.current;
-    if (!ser) return;
-    // Remove old line
-    if (hoverLineRef.current) {
-      try { ser.removePriceLine(hoverLineRef.current); } catch {}
-      hoverLineRef.current = null;
-    }
-    if (hoveredPrice == null) return;
-    hoverLineRef.current = ser.createPriceLine({
-      price: hoveredPrice,
-      color: 'rgba(255,255,255,0.25)',
-      lineWidth: 1,
-      lineStyle: 3, // dashed
-      axisLabelVisible: true,
-      title: '',
-    });
-    return () => {
-      if (hoverLineRef.current) {
-        try { ser.removePriceLine(hoverLineRef.current); } catch {}
-        hoverLineRef.current = null;
-      }
-    };
-  }, [hoveredPrice]);
+  const btnBase: React.CSSProperties = {
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    fontFamily: "IBM Plex Mono, monospace",
+    fontSize: "10px",
+    padding: "2px 6px",
+    borderRadius: "3px",
+    lineHeight: "18px",
+    transition: "background 0.15s, color 0.15s",
+  };
 
-  // Cleanup on unmount
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const active: React.CSSProperties = {
+    background: "rgba(255,200,50,0.15)",
+    color: "rgba(255,200,50,1)",
+  };
+
+  const inactive: React.CSSProperties = {
+    color: "rgba(180,180,180,0.7)",
+  };
+
+  const sep: React.CSSProperties = {
+    width: "1px",
+    height: "14px",
+    background: "rgba(255,255,255,0.1)",
+    flexShrink: 0,
+    alignSelf: "center",
+  };
 
   return (
     <div
-      className={isFullscreen ? 'chart-fullscreen' : undefined}
       style={{
-        display: 'flex', flexDirection: 'column', height: '100%',
-        background: 'rgba(10,13,20,1)',
-        position: isFullscreen ? 'fixed' : 'relative',
+        display: "flex",
+        alignItems: "center",
+        gap: "2px",
+        padding: "3px 8px",
+        background: "rgba(12,12,16,0.95)",
+        borderBottom: "1px solid rgba(255,255,255,0.07)",
+        overflowX: "auto",
+        flexWrap: "nowrap",
+        scrollbarWidth: "none",
+        minHeight: "28px",
+        userSelect: "none",
       }}
     >
-      {/* v48: Fullscreen close button */}
-      {isFullscreen && (
+      {/* Timeframes */}
+      {TIMEFRAMES.map((t) => (
         <button
-          className="chart-fullscreen-btn"
-          onClick={() => setIsFullscreen(false)}
-          aria-label="Exit fullscreen"
+          key={t}
+          style={{ ...btnBase, ...(tf === t ? active : inactive) }}
+          onClick={() => onTF(t)}
         >
-          ✕ EXIT
+          {t}
         </button>
-      )}
-      {/* Mobile stats strip */}
-      {ticker && symbolInfo && (
-        <div className="mobile-chart-stats">
-          <MobileStatsStrip ticker={ticker} symbolInfo={symbolInfo} />
-        </div>
-      )}
+      ))}
 
-      {/* Toolbar: interval + countdown + legend + status */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: '2px',
-        padding: '4px 10px',
-        borderBottom: '1px solid rgba(255,255,255,0.055)',
-        background: 'rgba(14,17,26,1)',
-        flexShrink: 0,
-        overflowX: 'auto',
-        minHeight: '34px',
-      }} className="hide-scrollbar">
-        <span className="label-xs" style={{ marginRight: '6px', flexShrink: 0 }}>INTERVAL</span>
+      <div style={sep} />
 
-        {(['1m','5m','15m','1h','4h','1d'] as Interval[]).map((i) => (
-          <button
-            key={i}
-            onClick={() => onIntervalChange(i)}
+      {/* Chart type */}
+      {CHART_TYPES.map(({ key, icon }) => (
+        <button
+          key={key}
+          title={key}
+          style={{ ...btnBase, fontSize: "12px", ...(chartType === key ? active : inactive) }}
+          onClick={() => onChartType(key)}
+        >
+          {icon}
+        </button>
+      ))}
+
+      <div style={sep} />
+
+      {/* Indicators dropdown */}
+      <div ref={indRef} style={{ position: "relative" }}>
+        <button
+          style={{
+            ...btnBase,
+            ...(indicators.size > 0 ? active : inactive),
+            display: "flex",
+            alignItems: "center",
+            gap: "3px",
+          }}
+          onClick={() => setIndOpen((v) => !v)}
+        >
+          <span>fx</span>
+          {indicators.size > 0 && (
+            <span
+              style={{
+                background: "rgba(255,200,50,0.8)",
+                color: "#000",
+                borderRadius: "9px",
+                padding: "0 4px",
+                fontSize: "9px",
+                lineHeight: "13px",
+              }}
+            >
+              {indicators.size}
+            </span>
+          )}
+        </button>
+
+        {indOpen && (
+          <div
             style={{
-              padding: '3px 8px', fontSize: '10px', fontWeight: 700,
-              fontFamily: 'inherit', cursor: 'pointer', borderRadius: '3px',
-              border: 'none', transition: 'all 80ms', flexShrink: 0,
-              background: interval === i ? 'rgba(242,142,44,0.14)' : 'transparent',
-              color:      interval === i ? 'rgba(242,142,44,1)'    : 'rgba(255,255,255,0.30)',
-              letterSpacing: '0.04em',
+              position: "absolute",
+              top: "calc(100% + 4px)",
+              left: 0,
+              background: "rgba(18,18,24,0.98)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: "5px",
+              zIndex: 999,
+              padding: "4px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "2px",
+              minWidth: "90px",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.6)",
             }}
           >
-            {i.toUpperCase()}
-          </button>
-        ))}
-
-        <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.07)', margin: '0 6px', flexShrink: 0 }} />
-
-        {/* OHLCV crosshair legend */}
-        <OHLCVLegend legend={legend} dec={dec} />
-
-        <div style={{ flex: 1 }} />
-        <WsStatusDot connected={wsLive} />
-        <button
-          onClick={() => setIsFullscreen((f) => !f)}
-          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen chart'}
-          style={{
-            background: 'transparent', border: 'none', cursor: 'pointer',
-            padding: '2px 6px', borderRadius: '3px',
-            color: 'rgba(255,255,255,0.25)', fontSize: '11px',
-            fontFamily: 'inherit', flexShrink: 0,
-            transition: 'color 100ms',
-          }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.65)'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.25)'; }}
-          aria-label="Toggle fullscreen"
-        >
-          {isFullscreen ? '⊡' : '⊞'}
-        </button>
-        <span style={{ fontSize: '7.5px', fontWeight: 600, color: 'rgba(255,255,255,0.10)', letterSpacing: '0.06em', flexShrink: 0, marginLeft: '8px' }}>
-          LIGHTWEIGHT
-        </span>
-      </div>
-
-      {/* Chart container + countdown overlay */}
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
-        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-        {/* v63: Skeleton overlay — visible until candles loaded */}
-        {!candlesLoaded && (
-          <div style={{
-            position: 'absolute', inset: 0,
-            background: 'rgba(10,13,20,1)',
-            zIndex: 5, pointerEvents: 'none',
-          }}>
-            <SkeletonChart />
+            {INDICATORS.map(({ key, label }) => {
+              const on = indicators.has(key);
+              return (
+                <button
+                  key={key}
+                  style={{
+                    ...btnBase,
+                    textAlign: "left",
+                    fontSize: "11px",
+                    ...(on ? active : inactive),
+                  }}
+                  onClick={() => onToggleIndicator(key)}
+                >
+                  {on ? "✓ " : "  "}{label}
+                </button>
+              );
+            })}
           </div>
         )}
-        {/* v60: Countdown overlay — TradingView style, nempel di price axis kanan */}
-        <div style={{
-          position: 'absolute',
-          right: 0,
-          bottom: '28px',
-          pointerEvents: 'none',
-          zIndex: 10,
-        }}>
-          <CandleCountdownOverlay interval={interval} />
-        </div>
       </div>
 
-      <style>{`
-        .mobile-chart-stats { display: none; }
-        @media (max-width: 767px) {
-          .mobile-chart-stats { display: block; }
-        }
-      `}</style>
+      <div style={sep} />
+
+      {/* Draw tools */}
+      {DRAW_TOOLS.map(({ key, icon, tip }) => (
+        <button
+          key={key}
+          title={tip}
+          style={{
+            ...btnBase,
+            fontSize: "13px",
+            ...(drawTool === key ? active : inactive),
+          }}
+          onClick={() => onDrawTool(drawTool === key ? "none" : key)}
+        >
+          {icon}
+        </button>
+      ))}
+
+      {/* Clear drawings shortcut */}
+      {drawTool !== "none" && (
+        <button
+          title="Cancel drawing"
+          style={{ ...btnBase, ...inactive, fontSize: "10px" }}
+          onClick={() => onDrawTool("none")}
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 });
 
-LightweightChart.displayName = 'LightweightChart';
+// ─── Main component ───────────────────────────────────────────────────────────
+
+const LightweightChart = memo(function LightweightChart({
+  symbol,
+  exchange = "bybit",
+  height = 400,
+  onTimeframeChange,
+}: LightweightChartProps) {
+  LightweightChart.displayName = "LightweightChart";
+
+  // ── state
+  const [tf, setTF] = useState<TF>("15m");
+  const [chartType, setChartType] = useState<ChartType>("candle");
+  const [indicators, setIndicators] = useState<Set<IndicatorKey>>(new Set());
+  const [drawTool, setDrawTool] = useState<DrawTool>("none");
+
+  // ── refs
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const mainSeriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
+  const indicatorSeriesRefs = useRef<ISeriesApi<SeriesType>[]>([]);
+  const mountedRef = useRef(true);
+  const rafRef = useRef<number>(0);
+  const lastBarsHash = useRef<string>("");
+  const rawBarsRef = useRef<OHLCBar[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // drawing state
+  const drawings = useRef<Drawing[]>([]);
+  const activeDrawing = useRef<{ tool: DrawTool; p1: DrawPoint | null; p2: DrawPoint | null }>({
+    tool: "none", p1: null, p2: null,
+  });
+  const isDrawing = useRef(false);
+
+  // ── chart init
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const chart = createChart(containerRef.current, {
+      width: containerRef.current.clientWidth,
+      height,
+      layout: {
+        background: { color: "rgba(10,10,14,0)" },
+        textColor: "rgba(180,180,190,0.85)",
+        fontFamily: "IBM Plex Mono, monospace",
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { color: "rgba(255,255,255,0.04)" },
+        horzLines: { color: "rgba(255,255,255,0.04)" },
+      },
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" },
+      timeScale: {
+        borderColor: "rgba(255,255,255,0.08)",
+        timeVisible: true,
+        secondsVisible: false,
+      },
+    });
+
+    chartRef.current = chart;
+
+    const ro = new ResizeObserver(() => {
+      if (containerRef.current) {
+        chart.resize(containerRef.current.clientWidth, height);
+      }
+    });
+    ro.observe(containerRef.current);
+
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+    };
+  }, [height]);
+
+  // ── clear indicator series helper
+  const clearIndicatorSeries = useCallback(() => {
+    if (!chartRef.current) return;
+    for (const s of indicatorSeriesRefs.current) {
+      try { chartRef.current.removeSeries(s); } catch {}
+    }
+    indicatorSeriesRefs.current = [];
+  }, []);
+
+  // ── apply indicators
+  const applyIndicators = useCallback((bars: OHLCBar[], inds: Set<IndicatorKey>) => {
+    if (!chartRef.current || bars.length < 30) return;
+    clearIndicatorSeries();
+    const chart = chartRef.current;
+
+    for (const ind of inds) {
+      if (ind === "MA") {
+        const s20 = chart.addLineSeries({
+          color: "rgba(100,180,255,0.8)", lineWidth: 1,
+          priceLineVisible: false, lastValueVisible: false,
+        });
+        s20.setData(calcSMA(bars, 20));
+        const s50 = chart.addLineSeries({
+          color: "rgba(255,160,50,0.8)", lineWidth: 1,
+          priceLineVisible: false, lastValueVisible: false,
+        });
+        s50.setData(calcSMA(bars, 50));
+        indicatorSeriesRefs.current.push(s20, s50);
+      }
+
+      if (ind === "BB") {
+        const { upper, lower, mid } = calcBB(bars);
+        const sU = chart.addLineSeries({
+          color: "rgba(130,100,255,0.6)", lineWidth: 1,
+          priceLineVisible: false, lastValueVisible: false, lineStyle: LineStyle.Dashed,
+        });
+        const sM = chart.addLineSeries({
+          color: "rgba(130,100,255,0.4)", lineWidth: 1,
+          priceLineVisible: false, lastValueVisible: false,
+        });
+        const sL = chart.addLineSeries({
+          color: "rgba(130,100,255,0.6)", lineWidth: 1,
+          priceLineVisible: false, lastValueVisible: false, lineStyle: LineStyle.Dashed,
+        });
+        sU.setData(upper); sM.setData(mid); sL.setData(lower);
+        indicatorSeriesRefs.current.push(sU, sM, sL);
+      }
+
+      if (ind === "RSI") {
+        const rsiPane = chart.addLineSeries({
+          color: "rgba(255,100,150,0.85)", lineWidth: 1,
+          priceLineVisible: false, lastValueVisible: true,
+          priceScaleId: "rsi",
+        });
+        chart.priceScale("rsi").applyOptions({
+          scaleMargins: { top: 0.8, bottom: 0 },
+          borderColor: "rgba(255,255,255,0.06)",
+        });
+        rsiPane.setData(calcRSI(bars));
+        indicatorSeriesRefs.current.push(rsiPane);
+      }
+
+      if (ind === "MACD") {
+        const { macdSeries, signalSeries, histSeries } = calcMACD(bars);
+        const sM = chart.addLineSeries({
+          color: "rgba(80,200,255,0.85)", lineWidth: 1,
+          priceLineVisible: false, lastValueVisible: false,
+          priceScaleId: "macd",
+        });
+        const sS = chart.addLineSeries({
+          color: "rgba(255,120,80,0.85)", lineWidth: 1,
+          priceLineVisible: false, lastValueVisible: false,
+          priceScaleId: "macd",
+        });
+        chart.priceScale("macd").applyOptions({
+          scaleMargins: { top: 0.75, bottom: 0 },
+          borderColor: "rgba(255,255,255,0.06)",
+        });
+        sM.setData(macdSeries); sS.setData(signalSeries);
+        indicatorSeriesRefs.current.push(sM, sS);
+        void histSeries; // histogram todo — needs HistogramSeries
+      }
+    }
+  }, [clearIndicatorSeries]);
+
+  // ── rebuild main series on chartType change
+  const buildMainSeries = useCallback(() => {
+    if (!chartRef.current) return;
+    if (mainSeriesRef.current) {
+      try { chartRef.current.removeSeries(mainSeriesRef.current); } catch {}
+      mainSeriesRef.current = null;
+    }
+    const chart = chartRef.current;
+    if (chartType === "candle") {
+      mainSeriesRef.current = chart.addCandlestickSeries({
+        upColor: "rgba(0,220,110,0.9)",
+        downColor: "rgba(230,50,80,0.9)",
+        borderVisible: false,
+        wickUpColor: "rgba(0,220,110,0.6)",
+        wickDownColor: "rgba(230,50,80,0.6)",
+      });
+    } else if (chartType === "bar") {
+      mainSeriesRef.current = chart.addBarSeries({
+        upColor: "rgba(0,220,110,0.9)",
+        downColor: "rgba(230,50,80,0.9)",
+      });
+    } else if (chartType === "line") {
+      mainSeriesRef.current = chart.addLineSeries({
+        color: "rgba(80,160,255,0.9)",
+        lineWidth: 2,
+        priceLineVisible: false,
+      });
+    } else if (chartType === "area") {
+      mainSeriesRef.current = chart.addAreaSeries({
+        lineColor: "rgba(80,160,255,0.9)",
+        topColor: "rgba(80,160,255,0.25)",
+        bottomColor: "rgba(80,160,255,0.0)",
+        lineWidth: 2,
+        priceLineVisible: false,
+      });
+    }
+  }, [chartType]);
+
+  useEffect(() => {
+    buildMainSeries();
+    // re-apply bars if we have them
+    if (rawBarsRef.current.length && mainSeriesRef.current) {
+      const bars = rawBarsRef.current;
+      if (chartType === "line" || chartType === "area") {
+        (mainSeriesRef.current as ISeriesApi<"Line">).setData(
+          bars.map((b) => ({ time: b.time, value: b.close }))
+        );
+      } else {
+        (mainSeriesRef.current as ISeriesApi<"Candlestick">).setData(bars as CandlestickData[]);
+      }
+      clearIndicatorSeries();
+      applyIndicators(bars, indicators);
+    }
+  }, [chartType, buildMainSeries, clearIndicatorSeries, applyIndicators, indicators]);
+
+  // ── fetch candles
+  const fetchCandles = useCallback(async () => {
+    if (!mountedRef.current) return;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+
+    try {
+      let bars: OHLCBar[] = [];
+      const tfMap: Record<TF, string> = {
+        "1m": "1", "5m": "5", "15m": "15", "1h": "60", "4h": "240", "1d": "D",
+      };
+      const binanceTF: Record<TF, string> = {
+        "1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d",
+      };
+
+      if (exchange === "bybit") {
+        const sym = symbol.replace("/", "").replace("-", "");
+        const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${sym}&interval=${tfMap[tf]}&limit=300`;
+        const res = await fetch(url, { signal: ac.signal });
+        const json = await res.json();
+        bars = (json?.result?.list ?? [])
+          .reverse()
+          .map((c: string[]) => ({
+            time: Math.floor(Number(c[0]) / 1000) as UTCTimestamp,
+            open: Number(c[1]),
+            high: Number(c[2]),
+            low: Number(c[3]),
+            close: Number(c[4]),
+            volume: Number(c[5]),
+          }));
+      } else if (exchange === "binance") {
+        const sym = symbol.replace("/", "").replace("-", "").toUpperCase();
+        const url = `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${binanceTF[tf]}&limit=300`;
+        const res = await fetch(url, { signal: ac.signal });
+        const json = await res.json();
+        bars = (Array.isArray(json) ? json : []).map((c: unknown[]) => ({
+          time: Math.floor(Number(c[0]) / 1000) as UTCTimestamp,
+          open: Number(c[1]),
+          high: Number(c[2]),
+          low: Number(c[3]),
+          close: Number(c[4]),
+          volume: Number(c[5]),
+        }));
+      } else if (exchange === "okx") {
+        const sym = symbol.includes("-") ? symbol : `${symbol.slice(0, -4)}-${symbol.slice(-4)}`;
+        const url = `https://www.okx.com/api/v5/market/candles?instId=${sym}&bar=${tfMap[tf]}&limit=300`;
+        const res = await fetch(url, { signal: ac.signal });
+        const json = await res.json();
+        bars = (json?.data ?? [])
+          .reverse()
+          .map((c: string[]) => ({
+            time: Math.floor(Number(c[0]) / 1000) as UTCTimestamp,
+            open: Number(c[1]),
+            high: Number(c[2]),
+            low: Number(c[3]),
+            close: Number(c[4]),
+            volume: Number(c[5]),
+          }));
+      }
+
+      if (!mountedRef.current || ac.signal.aborted || !bars.length) return;
+
+      // ── RAF-batched + hash-guarded update
+      const newHash = `${bars.length}-${bars[bars.length - 1]?.close}`;
+      if (newHash === lastBarsHash.current) return;
+      lastBarsHash.current = newHash;
+
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        if (!mountedRef.current || !mainSeriesRef.current) return;
+        rawBarsRef.current = bars;
+
+        if (chartType === "line" || chartType === "area") {
+          (mainSeriesRef.current as ISeriesApi<"Line">).setData(
+            bars.map((b) => ({ time: b.time, value: b.close }))
+          );
+        } else {
+          (mainSeriesRef.current as ISeriesApi<"Candlestick">).setData(bars as CandlestickData[]);
+        }
+        applyIndicators(bars, indicators);
+        chartRef.current?.timeScale().fitContent();
+      });
+    } catch (e: unknown) {
+      if ((e as Error)?.name !== "AbortError") console.warn("[LightweightChart] fetch err", e);
+    }
+  }, [symbol, exchange, tf, chartType, indicators, applyIndicators]);
+
+  useEffect(() => {
+    buildMainSeries();
+  }, [buildMainSeries]);
+
+  useEffect(() => {
+    fetchCandles();
+    const interval = setInterval(fetchCandles, tf === "1m" ? 15_000 : 60_000);
+    return () => {
+      clearInterval(interval);
+      cancelAnimationFrame(rafRef.current);
+      abortRef.current?.abort();
+    };
+  }, [fetchCandles]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  // ── indicator toggle
+  const handleToggleIndicator = useCallback((k: IndicatorKey) => {
+    setIndicators((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  }, []);
+
+  // ── TF change
+  const handleTF = useCallback((t: TF) => {
+    setTF(t);
+    lastBarsHash.current = "";
+    onTimeframeChange?.(t);
+  }, [onTimeframeChange]);
+
+  // ── drawing canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const parent = canvas.parentElement!;
+    canvas.width = parent.clientWidth;
+    canvas.height = height;
+  }, [height]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    canvas.style.cursor = drawTool !== "none" ? "crosshair" : "default";
+    canvas.style.pointerEvents = drawTool !== "none" ? "auto" : "none";
+
+    const getPoint = (e: MouseEvent): DrawPoint => {
+      const r = canvas.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+
+    const onDown = (e: MouseEvent) => {
+      if (drawTool === "none") return;
+      isDrawing.current = true;
+      const p = getPoint(e);
+      activeDrawing.current = { tool: drawTool, p1: p, p2: p };
+    };
+
+    const onMove = (e: MouseEvent) => {
+      if (!isDrawing.current || !activeDrawing.current.p1) return;
+      activeDrawing.current.p2 = getPoint(e);
+      renderDrawings(ctx, drawings.current, activeDrawing.current, canvas.width, canvas.height);
+    };
+
+    const onUp = (e: MouseEvent) => {
+      if (!isDrawing.current || !activeDrawing.current.p1) return;
+      isDrawing.current = false;
+      const p2 = getPoint(e);
+      drawings.current.push({ tool: drawTool, p1: activeDrawing.current.p1!, p2 });
+      activeDrawing.current = { tool: drawTool, p1: null, p2: null };
+      renderDrawings(ctx, drawings.current, null, canvas.width, canvas.height);
+    };
+
+    canvas.addEventListener("mousedown", onDown);
+    canvas.addEventListener("mousemove", onMove);
+    canvas.addEventListener("mouseup", onUp);
+    return () => {
+      canvas.removeEventListener("mousedown", onDown);
+      canvas.removeEventListener("mousemove", onMove);
+      canvas.removeEventListener("mouseup", onUp);
+    };
+  }, [drawTool]);
+
+  // clear drawings when symbol or tf changes
+  useEffect(() => {
+    drawings.current = [];
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext("2d");
+      ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
+  }, [symbol, tf]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", width: "100%", background: "rgba(10,10,14,1)" }}>
+      <Toolbar
+        tf={tf}
+        chartType={chartType}
+        indicators={indicators}
+        drawTool={drawTool}
+        onTF={handleTF}
+        onChartType={setChartType}
+        onToggleIndicator={handleToggleIndicator}
+        onDrawTool={setDrawTool}
+      />
+
+      {/* chart + drawing canvas stacked */}
+      <div style={{ position: "relative", width: "100%", height }}>
+        <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+        <canvas
+          ref={canvasRef}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            pointerEvents: "none",
+          }}
+        />
+      </div>
+    </div>
+  );
+});
+
 export default LightweightChart;
