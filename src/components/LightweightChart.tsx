@@ -489,8 +489,7 @@ const LightweightChart = memo(function LightweightChart({
   useEffect(() => {
     if (!containerRef.current) return;
     const chart = createChart(containerRef.current, {
-      width:  containerRef.current.clientWidth,
-      height: containerRef.current.clientHeight || 400,
+      autoSize: true,
       layout: {
         background:  { color: 'rgba(10,13,20,0)' },
         textColor:   'rgba(255,255,255,0.40)',
@@ -501,22 +500,16 @@ const LightweightChart = memo(function LightweightChart({
         vertLines: { color: 'rgba(255,255,255,0.03)' },
         horzLines: { color: 'rgba(255,255,255,0.03)' },
       },
-      crosshair:      { mode: CrosshairMode.Normal },
+      crosshair:       { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: 'rgba(255,255,255,0.05)' },
       timeScale: {
-        borderColor:     'rgba(255,255,255,0.05)',
-        timeVisible:     true,
-        secondsVisible:  false,
+        borderColor:    'rgba(255,255,255,0.05)',
+        timeVisible:    true,
+        secondsVisible: false,
       },
     });
     chartRef.current = chart;
-
-    const ro = new ResizeObserver(() => {
-      if (containerRef.current)
-        chart.resize(containerRef.current.clientWidth, containerRef.current.clientHeight || 400);
-    });
-    ro.observe(containerRef.current);
-    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; };
+    return () => { chart.remove(); chartRef.current = null; };
   }, []);
 
   // ── hovered price line
@@ -766,13 +759,11 @@ const LightweightChart = memo(function LightweightChart({
       />
 
       {/* Chart + drawing canvas stacked */}
-      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+        <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
         <canvas
           ref={canvasRef}
           style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
-          width={containerRef.current?.clientWidth ?? 800}
-          height={containerRef.current?.clientHeight ?? 400}
         />
       </div>
 
