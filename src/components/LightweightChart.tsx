@@ -1,19 +1,19 @@
-// LightweightChart.tsx — v82
-// Changes vs v43 (TradingViewChart):
-//  - Compact top toolbar: interval + chart type + indicators (MA/BB/RSI/MACD) + drawing tools
-//  - RAF-batched chart updates (skip if data unchanged via hash guard)
-//  - Memoized series update (only update if new candle differs)
-//  - Drawing tools overlay (trendline, fib, rect) via canvas — non-blocking
-//  - Indicators rendered as lightweight-charts native series
-//  - Props interface IDENTICAL to TradingViewChart (drop-in replacement)
+// LightweightChart.tsx — v82 PERF MAX
+//
+// PERF vs prev v82:
+//  ✓ calcSMA: sliding window O(n) — was O(n²) slice+reduce
+//  ✓ calcBB:  sliding window O(n) — was O(n²)
+//  ✓ applyIndicators: diff-based — only add/remove changed indicators (no full clear)
+//  ✓ hoveredPrice line: update data in-place, never recreate series
+//  ✓ fetchCandles: removed chartType+indicators from deps — no refetch on indicator toggle
+//  ✓ Drawing canvas: ResizeObserver syncs canvas size — no stale dimensions
+//  ✓ calcMACD: pre-allocated arrays, single pass
+//  ✓ All fetch race conditions guarded with wsRef pattern
+//
 // rgba() only ✓ · IBM Plex Mono ✓ · React.memo ✓ · displayName ✓
 
 import React, {
-  useEffect,
-  useRef,
-  useCallback,
-  useState,
-  memo,
+  useEffect, useRef, useCallback, useState, memo,
 } from 'react';
 import {
   createChart,
@@ -44,7 +44,6 @@ interface OHLCBar {
   volume?: number;
 }
 
-// Drop-in replacement for TradingViewChart — same props
 interface LightweightChartProps {
   symbol:           string;
   interval:         Interval;
@@ -83,8 +82,6 @@ const DRAW_TOOLS: { key: DrawTool; icon: string; tip: string }[] = [
   { key: 'rect',      icon: '▭', tip: 'Rectangle' },
 ];
 
-// ─── Bybit interval map ───────────────────────────────────────────────────────
-
 const BYBIT_TF: Record<Interval, string> = {
   '1m': '1', '5m': '5', '15m': '15', '1h': '60', '4h': '240', '1d': 'D',
 };
@@ -92,124 +89,39 @@ const BINANCE_TF: Record<Interval, string> = {
   '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d',
 };
 
-// ─── Candle countdown (identical to TradingViewChart) ─────────────────────────
-
-const CandleCountdown = memo(function CandleCountdown({ interval }: { interval: Interval }) {
-  CandleCountdown.displayName = 'CandleCountdown';
-  const [remaining, setRemaining] = useState(0);
-
-  useEffect(() => {
-    const totalSecs = INTERVAL_SECONDS[interval];
-    const tick = () => {
-      const now = Math.floor(Date.now() / 1000);
-      setRemaining(totalSecs - (now % totalSecs));
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [interval]);
-
-  const mm  = Math.floor(remaining / 60).toString().padStart(2, '0');
-  const ss  = (remaining % 60).toString().padStart(2, '0');
-  const str = interval === '1d'
-    ? Math.floor(remaining / 3600) + 'h ' + Math.floor((remaining % 3600) / 60) + 'm'
-    : remaining >= 60 ? mm + ':' + ss : ss + 's';
-  const isUrgent = remaining <= 10;
-
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: '4px',
-      padding: '2px 7px',
-      background: isUrgent ? 'rgba(242,142,44,0.12)' : 'rgba(255,255,255,0.04)',
-      border: '1px solid ' + (isUrgent ? 'rgba(242,142,44,0.35)' : 'rgba(255,255,255,0.07)'),
-      borderRadius: '3px', flexShrink: 0,
-    }}>
-      <span style={{
-        fontSize: '10px', fontWeight: 800,
-        color: isUrgent ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.55)',
-        letterSpacing: '0.04em', minWidth: '28px',
-        fontFamily: 'IBM Plex Mono, monospace',
-      }}>
-        {str}
-      </span>
-    </div>
-  );
-});
-
-// ─── Mobile stats strip ───────────────────────────────────────────────────────
-
-const MobileStatsStrip = memo(function MobileStatsStrip({
-  ticker, symbolInfo,
-}: { ticker: TickerData; symbolInfo: SymbolInfo }) {
-  MobileStatsStrip.displayName = 'MobileStatsStrip';
-  const isUp       = ticker.priceChangePercent >= 0;
-  const priceColor = isUp ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
-  const dec        = Math.min(symbolInfo.priceDec ?? 2, 6);
-  const priceStr   = ticker.lastPrice.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-  const changeStr  = (isUp ? '+' : '') + ticker.priceChangePercent.toFixed(2) + '%';
-  const volStr     = formatCompact(ticker.quoteVolume).replace('$', '');
-
-  return (
-    <div style={{
-      padding: '8px 14px 6px',
-      borderBottom: '1px solid rgba(255,255,255,0.055)',
-      background: 'rgba(13,16,23,1)', flexShrink: 0,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
-        <span style={{ fontSize: '22px', fontWeight: 800, color: priceColor, fontFamily: 'IBM Plex Mono, monospace' }}>
-          {priceStr}
-        </span>
-        <span style={{
-          fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '4px',
-          background: isUp ? 'rgba(38,166,154,0.12)' : 'rgba(239,83,80,0.12)',
-          color: priceColor,
-        }}>
-          {changeStr}
-        </span>
-      </div>
-      <div style={{ display: 'flex', gap: '0', borderTop: '1px solid rgba(255,255,255,0.045)', paddingTop: '5px' }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.28)' }}>24h High</div>
-          <div style={{ fontSize: '11px', color: 'rgba(38,166,154,0.85)', fontFamily: 'IBM Plex Mono, monospace' }}>
-            {ticker.highPrice.toLocaleString('en-US', { maximumFractionDigits: dec })}
-          </div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.28)' }}>24h Low</div>
-          <div style={{ fontSize: '11px', color: 'rgba(239,83,80,0.85)', fontFamily: 'IBM Plex Mono, monospace' }}>
-            {ticker.lowPrice.toLocaleString('en-US', { maximumFractionDigits: dec })}
-          </div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.28)' }}>Volume($)</div>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', fontFamily: 'IBM Plex Mono, monospace' }}>
-            {volStr}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-// ─── Math helpers ─────────────────────────────────────────────────────────────
+// ─── Math — all O(n) sliding window ──────────────────────────────────────────
 
 function calcSMA(data: OHLCBar[], period: number): LineData[] {
+  if (data.length < period) return [];
   const out: LineData[] = [];
-  for (let i = period - 1; i < data.length; i++) {
-    const slice = data.slice(i - period + 1, i + 1);
-    const avg   = slice.reduce((s, b) => s + b.close, 0) / period;
-    out.push({ time: data[i].time, value: avg });
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += data[i].close;
+  out.push({ time: data[period - 1].time, value: sum / period });
+  for (let i = period; i < data.length; i++) {
+    sum += data[i].close - data[i - period].close;
+    out.push({ time: data[i].time, value: sum / period });
   }
   return out;
 }
 
 function calcBB(data: OHLCBar[], period = 20, mult = 2) {
   const upper: LineData[] = [], lower: LineData[] = [], mid: LineData[] = [];
+  if (data.length < period) return { upper, lower, mid };
+  // Welford-style: sliding sum + sliding sum of squares
+  let sum = 0, sumSq = 0;
+  for (let i = 0; i < period; i++) {
+    sum   += data[i].close;
+    sumSq += data[i].close ** 2;
+  }
   for (let i = period - 1; i < data.length; i++) {
-    const slice    = data.slice(i - period + 1, i + 1);
-    const avg      = slice.reduce((s, b) => s + b.close, 0) / period;
-    const variance = slice.reduce((s, b) => s + (b.close - avg) ** 2, 0) / period;
-    const sd       = Math.sqrt(variance);
+    if (i > period - 1) {
+      const rm = data[i - period].close;
+      const ad = data[i].close;
+      sum   += ad - rm;
+      sumSq += ad * ad - rm * rm;
+    }
+    const avg = sum / period;
+    const sd  = Math.sqrt(Math.max(0, sumSq / period - avg * avg));
     mid.push({ time: data[i].time, value: avg });
     upper.push({ time: data[i].time, value: avg + mult * sd });
     lower.push({ time: data[i].time, value: avg - mult * sd });
@@ -227,38 +139,40 @@ function calcRSI(data: OHLCBar[], period = 14): LineData[] {
   }
   let avgG = gains / period;
   let avgL = losses / period;
-  out.push({ time: data[period].time, value: 100 - 100 / (1 + avgG / (avgL || 1)) });
+  out.push({ time: data[period].time, value: 100 - 100 / (1 + avgG / (avgL || 1e-10)) });
   for (let i = period + 1; i < data.length; i++) {
-    const d  = data[i].close - data[i - 1].close;
-    const g  = d > 0 ? d : 0;
-    const l  = d < 0 ? -d : 0;
-    avgG     = (avgG * (period - 1) + g) / period;
-    avgL     = (avgL * (period - 1) + l) / period;
-    out.push({ time: data[i].time, value: 100 - 100 / (1 + avgG / (avgL || 1)) });
+    const d = data[i].close - data[i - 1].close;
+    avgG = (avgG * (period - 1) + Math.max(0, d))  / period;
+    avgL = (avgL * (period - 1) + Math.max(0, -d)) / period;
+    out.push({ time: data[i].time, value: 100 - 100 / (1 + avgG / (avgL || 1e-10)) });
   }
   return out;
 }
 
-function calcMACD(data: OHLCBar[], fast = 12, slow = 26, signal = 9) {
-  const ema = (arr: number[], p: number) => {
-    const k = 2 / (p + 1);
-    const r = [arr[0]];
-    for (let i = 1; i < arr.length; i++) r.push(arr[i] * k + r[i - 1] * (1 - k));
-    return r;
-  };
-  const closes     = data.map((b) => b.close);
-  const fastEma    = ema(closes, fast);
-  const slowEma    = ema(closes, slow);
-  const macdLine   = fastEma.map((v, i) => v - slowEma[i]);
-  const signalLine = ema(macdLine.slice(slow - 1), signal);
-  const macdSeries: LineData[] = [], signalSeries: LineData[] = [];
-  const offset = slow - 1;
-  signalLine.forEach((sv, i) => {
-    const idx = offset + signal - 1 + i;
-    if (idx >= data.length) return;
-    macdSeries.push({ time: data[idx].time, value: macdLine[offset + signal - 1 + i] });
-    signalSeries.push({ time: data[idx].time, value: sv });
-  });
+function calcMACD(data: OHLCBar[], fast = 12, slow = 26, sigPeriod = 9) {
+  const closes = data.map(b => b.close);
+  const n      = closes.length;
+  if (n < slow + sigPeriod) return { macdSeries: [] as LineData[], signalSeries: [] as LineData[] };
+
+  // EMA inline — single pass
+  const kFast = 2 / (fast + 1), kSlow = 2 / (slow + 1);
+  let eFast = closes[0], eSlow = closes[0];
+  const macd = new Float64Array(n);
+  for (let i = 1; i < n; i++) {
+    eFast = closes[i] * kFast + eFast * (1 - kFast);
+    eSlow = closes[i] * kSlow + eSlow * (1 - kSlow);
+    macd[i] = eFast - eSlow;
+  }
+
+  const kSig = 2 / (sigPeriod + 1);
+  let eSig = macd[slow];
+  const macdSeries: LineData[]   = [];
+  const signalSeries: LineData[] = [];
+  for (let i = slow + 1; i < n; i++) {
+    eSig = macd[i] * kSig + eSig * (1 - kSig);
+    macdSeries.push({ time: data[i].time, value: macd[i] });
+    signalSeries.push({ time: data[i].time, value: eSig });
+  }
   return { macdSeries, signalSeries };
 }
 
@@ -268,9 +182,9 @@ interface DrawPoint { x: number; y: number }
 interface Drawing   { tool: DrawTool; p1: DrawPoint; p2: DrawPoint }
 
 function renderDrawings(
-  ctx: CanvasRenderingContext2D,
+  ctx:      CanvasRenderingContext2D,
   drawings: Drawing[],
-  active: { tool: DrawTool; p1: DrawPoint | null; p2: DrawPoint | null } | null,
+  active:   { tool: DrawTool; p1: DrawPoint | null; p2: DrawPoint | null } | null,
   w: number, h: number,
 ) {
   ctx.clearRect(0, 0, w, h);
@@ -325,6 +239,61 @@ interface ToolbarProps {
   onDrawTool:        (dt: DrawTool) => void;
 }
 
+const btn = (active: boolean): React.CSSProperties => ({
+  background:  active ? 'rgba(242,142,44,0.14)' : 'transparent',
+  color:       active ? 'rgba(242,142,44,1)'    : 'rgba(255,255,255,0.30)',
+  border:      'none', cursor: 'pointer',
+  fontFamily:  'IBM Plex Mono, monospace',
+  fontSize:    '10px', fontWeight: 700,
+  padding:     '3px 7px', borderRadius: '3px',
+  letterSpacing: '0.04em', lineHeight: '18px',
+  transition:  'all 80ms', flexShrink: 0,
+});
+
+const SEP_STYLE: React.CSSProperties = {
+  width: '1px', height: '14px',
+  background: 'rgba(255,255,255,0.07)',
+  flexShrink: 0, alignSelf: 'center', margin: '0 4px',
+};
+
+const CandleCountdown = memo(function CandleCountdown({ interval }: { interval: Interval }) {
+  CandleCountdown.displayName = 'CandleCountdown';
+  const [remaining, setRemaining] = useState(0);
+  useEffect(() => {
+    const totalSecs = INTERVAL_SECONDS[interval];
+    const tick = () => {
+      const now = Math.floor(Date.now() / 1000);
+      setRemaining(totalSecs - (now % totalSecs));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [interval]);
+  const mm      = Math.floor(remaining / 60).toString().padStart(2, '0');
+  const ss      = (remaining % 60).toString().padStart(2, '0');
+  const str     = interval === '1d'
+    ? Math.floor(remaining / 3600) + 'h ' + Math.floor((remaining % 3600) / 60) + 'm'
+    : remaining >= 60 ? mm + ':' + ss : ss + 's';
+  const isUrgent = remaining <= 10;
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 7px',
+      background: isUrgent ? 'rgba(242,142,44,0.12)' : 'rgba(255,255,255,0.04)',
+      border: '1px solid ' + (isUrgent ? 'rgba(242,142,44,0.35)' : 'rgba(255,255,255,0.07)'),
+      borderRadius: '3px', flexShrink: 0,
+    }}>
+      <span style={{
+        fontSize: '10px', fontWeight: 800,
+        color: isUrgent ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.55)',
+        letterSpacing: '0.04em', minWidth: '28px',
+        fontFamily: 'IBM Plex Mono, monospace',
+      }}>
+        {str}
+      </span>
+    </div>
+  );
+});
+
 const Toolbar = memo(function Toolbar({
   interval, chartType, indicators, drawTool,
   onInterval, onChartType, onToggleIndicator, onDrawTool,
@@ -342,22 +311,7 @@ const Toolbar = memo(function Toolbar({
     return () => document.removeEventListener('mousedown', handler);
   }, [indOpen]);
 
-  const btn = (active: boolean): React.CSSProperties => ({
-    background:  active ? 'rgba(242,142,44,0.14)' : 'transparent',
-    color:       active ? 'rgba(242,142,44,1)'    : 'rgba(255,255,255,0.30)',
-    border:      'none', cursor: 'pointer',
-    fontFamily:  'IBM Plex Mono, monospace',
-    fontSize:    '10px', fontWeight: 700,
-    padding:     '3px 7px', borderRadius: '3px',
-    letterSpacing: '0.04em', lineHeight: '18px',
-    transition:  'all 80ms', flexShrink: 0,
-  });
-
-  const sep: React.CSSProperties = {
-    width: '1px', height: '14px',
-    background: 'rgba(255,255,255,0.07)',
-    flexShrink: 0, alignSelf: 'center', margin: '0 4px',
-  };
+  const toggleInd = useCallback(() => setIndOpen(v => !v), []);
 
   return (
     <div style={{
@@ -369,34 +323,24 @@ const Toolbar = memo(function Toolbar({
       scrollbarWidth: 'none' as const,
       minHeight: '32px', userSelect: 'none' as const,
     }}>
-      {/* Interval */}
       {INTERVALS.map((i) => (
         <button key={i} style={btn(interval === i)} onClick={() => onInterval(i)}>
           {i.toUpperCase()}
         </button>
       ))}
-
-      <div style={sep} />
-
-      {/* Candle countdown */}
+      <div style={SEP_STYLE} />
       <CandleCountdown interval={interval} />
-
-      <div style={sep} />
-
-      {/* Chart type */}
+      <div style={SEP_STYLE} />
       {CHART_TYPES.map(({ key, icon }) => (
         <button key={key} title={key} style={{ ...btn(chartType === key), fontSize: '13px' }} onClick={() => onChartType(key)}>
           {icon}
         </button>
       ))}
-
-      <div style={sep} />
-
-      {/* Indicators dropdown */}
+      <div style={SEP_STYLE} />
       <div ref={indRef} style={{ position: 'relative' }}>
         <button
           style={{ ...btn(indicators.size > 0), display: 'flex', alignItems: 'center', gap: '3px' }}
-          onClick={() => setIndOpen((v) => !v)}
+          onClick={toggleInd}
         >
           <span>fx</span>
           {indicators.size > 0 && (
@@ -420,11 +364,7 @@ const Toolbar = memo(function Toolbar({
             {INDICATORS.map(({ key, label }) => {
               const on = indicators.has(key);
               return (
-                <button
-                  key={key}
-                  style={{ ...btn(on), textAlign: 'left' as const, fontSize: '11px' }}
-                  onClick={() => onToggleIndicator(key)}
-                >
+                <button key={key} style={{ ...btn(on), textAlign: 'left' as const, fontSize: '11px' }} onClick={() => onToggleIndicator(key)}>
                   {on ? '✓ ' : '  '}{label}
                 </button>
               );
@@ -432,23 +372,15 @@ const Toolbar = memo(function Toolbar({
           </div>
         )}
       </div>
-
-      <div style={sep} />
-
-      {/* Draw tools */}
+      <div style={SEP_STYLE} />
       {DRAW_TOOLS.map(({ key, icon, tip }) => (
-        <button
-          key={key} title={tip}
-          style={{ ...btn(drawTool === key), fontSize: '14px' }}
-          onClick={() => onDrawTool(drawTool === key ? 'none' : key)}
-        >
+        <button key={key} title={tip} style={{ ...btn(drawTool === key), fontSize: '14px' }} onClick={() => onDrawTool(drawTool === key ? 'none' : key)}>
           {icon}
         </button>
       ))}
       {drawTool !== 'none' && (
         <button style={{ ...btn(false), fontSize: '10px' }} onClick={() => onDrawTool('none')}>✕</button>
       )}
-
       <div style={{ flex: 1 }} />
       <span style={{ fontSize: '8px', fontWeight: 600, color: 'rgba(255,255,255,0.12)', letterSpacing: '0.06em', flexShrink: 0 }}>
         LIGHTWEIGHT
@@ -456,6 +388,57 @@ const Toolbar = memo(function Toolbar({
     </div>
   );
 });
+
+// ─── Mobile stats strip ───────────────────────────────────────────────────────
+
+const MobileStatsStrip = memo(function MobileStatsStrip({
+  ticker, symbolInfo,
+}: { ticker: TickerData; symbolInfo: SymbolInfo }) {
+  MobileStatsStrip.displayName = 'MobileStatsStrip';
+  const isUp       = ticker.priceChangePercent >= 0;
+  const priceColor = isUp ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
+  const dec        = Math.min(symbolInfo.priceDec ?? 2, 6);
+  const priceStr   = ticker.lastPrice.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  const changeStr  = (isUp ? '+' : '') + ticker.priceChangePercent.toFixed(2) + '%';
+  const volStr     = formatCompact(ticker.quoteVolume).replace('$', '');
+  return (
+    <div style={{
+      padding: '8px 14px 6px',
+      borderBottom: '1px solid rgba(255,255,255,0.055)',
+      background: 'rgba(13,16,23,1)', flexShrink: 0,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
+        <span style={{ fontSize: '22px', fontWeight: 800, color: priceColor, fontFamily: 'IBM Plex Mono, monospace' }}>
+          {priceStr}
+        </span>
+        <span style={{
+          fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '4px',
+          background: isUp ? 'rgba(38,166,154,0.12)' : 'rgba(239,83,80,0.12)',
+          color: priceColor,
+        }}>
+          {changeStr}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: '0', borderTop: '1px solid rgba(255,255,255,0.045)', paddingTop: '5px' }}>
+        {[
+          { label: '24h High', val: ticker.highPrice.toLocaleString('en-US', { maximumFractionDigits: dec }), color: 'rgba(38,166,154,0.85)' },
+          { label: '24h Low',  val: ticker.lowPrice.toLocaleString('en-US',  { maximumFractionDigits: dec }), color: 'rgba(239,83,80,0.85)'  },
+          { label: 'Volume($)',val: volStr, color: 'rgba(255,255,255,0.65)' },
+        ].map(({ label, val, color }) => (
+          <div key={label} style={{ flex: 1 }}>
+            <div style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.28)' }}>{label}</div>
+            <div style={{ fontSize: '11px', color, fontFamily: 'IBM Plex Mono, monospace' }}>{val}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+// ─── Indicator series registry ────────────────────────────────────────────────
+// Diff-based: only recreate series that changed, reuse others.
+
+type IndSeriesMap = Map<string, ISeriesApi<'Line'>[]>;
 
 // ─── Main LightweightChart ────────────────────────────────────────────────────
 
@@ -468,24 +451,28 @@ const LightweightChart = memo(function LightweightChart({
   const [indicators, setIndicators] = useState<Set<IndicatorKey>>(new Set());
   const [drawTool,   setDrawTool]   = useState<DrawTool>('none');
 
-  const containerRef         = useRef<HTMLDivElement>(null);
-  const canvasRef            = useRef<HTMLCanvasElement>(null);
-  const chartRef             = useRef<IChartApi | null>(null);
-  const mainSeriesRef        = useRef<ISeriesApi<'Candlestick' | 'Bar' | 'Line' | 'Area'> | null>(null);
-  const indicatorSeriesRefs  = useRef<ISeriesApi<'Line'>[]>([]);
-  const hoveredLineRef       = useRef<ISeriesApi<'Line'> | null>(null);
-  const mountedRef           = useRef(true);
-  const rafRef               = useRef<number>(0);
-  const lastBarsHash         = useRef('');
-  const rawBarsRef           = useRef<OHLCBar[]>([]);
-  const abortRef             = useRef<AbortController | null>(null);
+  const containerRef    = useRef<HTMLDivElement>(null);
+  const canvasRef       = useRef<HTMLCanvasElement>(null);
+  const chartRef        = useRef<IChartApi | null>(null);
+  const mainSeriesRef   = useRef<ISeriesApi<'Candlestick' | 'Bar' | 'Line' | 'Area'> | null>(null);
+  const indSeriesMap    = useRef<IndSeriesMap>(new Map()); // key → series[]
+  const hoveredLineRef  = useRef<ISeriesApi<'Line'> | null>(null);
+  const mountedRef      = useRef(true);
+  const rafRef          = useRef<number>(0);
+  const lastBarsHash    = useRef('');
+  const rawBarsRef      = useRef<OHLCBar[]>([]);
+  const abortRef        = useRef<AbortController | null>(null);
+  const chartTypeRef    = useRef(chartType);
+  const indicatorsRef   = useRef(indicators);
+  chartTypeRef.current  = chartType;
+  indicatorsRef.current = indicators;
 
   // drawing refs
   const drawings      = useRef<Drawing[]>([]);
   const activeDrawing = useRef<{ tool: DrawTool; p1: DrawPoint | null; p2: DrawPoint | null }>({ tool: 'none', p1: null, p2: null });
   const isDrawing     = useRef(false);
 
-  // ── chart init
+  // ── chart init ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current) return;
     const chart = createChart(containerRef.current, {
@@ -512,105 +499,165 @@ const LightweightChart = memo(function LightweightChart({
     return () => { chart.remove(); chartRef.current = null; };
   }, []);
 
-  // ── hovered price line
+  // ── canvas resize via ResizeObserver ─────────────────────────────────────────
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const parent = containerRef.current?.parentElement;
+    if (!canvas || !parent) return;
+    const ro = new ResizeObserver(() => {
+      canvas.width  = parent.clientWidth;
+      canvas.height = parent.clientHeight;
+      // redraw on resize
+      const ctx = canvas.getContext('2d');
+      if (ctx) renderDrawings(ctx, drawings.current, null, canvas.width, canvas.height);
+    });
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, []);
+
+  // ── hovered price line — update in-place, never recreate series ──────────────
   useEffect(() => {
     if (!chartRef.current) return;
-    if (hoveredLineRef.current) {
-      try { chartRef.current.removeSeries(hoveredLineRef.current); } catch {}
-      hoveredLineRef.current = null;
-    }
     if (hoveredPrice && rawBarsRef.current.length) {
-      const s = chartRef.current.addLineSeries({
-        color: 'rgba(255,200,50,0.5)', lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        priceLineVisible: false, lastValueVisible: false,
-      });
-      const times = rawBarsRef.current.map((b) => b.time);
-      s.setData(times.map((t) => ({ time: t, value: hoveredPrice })));
-      hoveredLineRef.current = s;
+      if (!hoveredLineRef.current) {
+        hoveredLineRef.current = chartRef.current.addLineSeries({
+          color: 'rgba(255,200,50,0.5)', lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          priceLineVisible: false, lastValueVisible: false,
+        });
+      }
+      const times = rawBarsRef.current.map(b => b.time);
+      hoveredLineRef.current.setData(times.map(t => ({ time: t, value: hoveredPrice })));
+    } else {
+      if (hoveredLineRef.current && chartRef.current) {
+        try { chartRef.current.removeSeries(hoveredLineRef.current); } catch {}
+        hoveredLineRef.current = null;
+      }
     }
   }, [hoveredPrice]);
 
-  // ── clear indicator series
-  const clearIndicators = useCallback(() => {
-    if (!chartRef.current) return;
-    for (const s of indicatorSeriesRefs.current) try { chartRef.current.removeSeries(s); } catch {}
-    indicatorSeriesRefs.current = [];
-  }, []);
-
-  // ── apply indicators
+  // ── diff-based indicator update ──────────────────────────────────────────────
   const applyIndicators = useCallback((bars: OHLCBar[], inds: Set<IndicatorKey>) => {
-    if (!chartRef.current || bars.length < 30) return;
-    clearIndicators();
     const chart = chartRef.current;
+    if (!chart || bars.length < 30) return;
 
-    if (inds.has('MA')) {
-      const s20 = chart.addLineSeries({ color: 'rgba(100,180,255,0.8)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-      s20.setData(calcSMA(bars, 20));
-      const s50 = chart.addLineSeries({ color: 'rgba(255,160,50,0.8)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-      s50.setData(calcSMA(bars, 50));
-      indicatorSeriesRefs.current.push(s20, s50);
+    // Remove indicators that are no longer active
+    for (const [key, series] of indSeriesMap.current) {
+      if (!inds.has(key as IndicatorKey)) {
+        for (const s of series) try { chart.removeSeries(s); } catch {}
+        indSeriesMap.current.delete(key);
+      }
     }
-    if (inds.has('BB')) {
+
+    // Add only new indicators
+    if (inds.has('MA') && !indSeriesMap.current.has('MA')) {
+      const s20 = chart.addLineSeries({ color: 'rgba(100,180,255,0.8)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+      const s50 = chart.addLineSeries({ color: 'rgba(255,160,50,0.8)',  lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+      s20.setData(calcSMA(bars, 20));
+      s50.setData(calcSMA(bars, 50));
+      indSeriesMap.current.set('MA', [s20, s50]);
+    }
+    if (inds.has('BB') && !indSeriesMap.current.has('BB')) {
       const { upper, lower, mid } = calcBB(bars);
       const sU = chart.addLineSeries({ color: 'rgba(130,100,255,0.6)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, lineStyle: LineStyle.Dashed });
       const sM = chart.addLineSeries({ color: 'rgba(130,100,255,0.4)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
       const sL = chart.addLineSeries({ color: 'rgba(130,100,255,0.6)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, lineStyle: LineStyle.Dashed });
       sU.setData(upper); sM.setData(mid); sL.setData(lower);
-      indicatorSeriesRefs.current.push(sU, sM, sL);
+      indSeriesMap.current.set('BB', [sU, sM, sL]);
     }
-    if (inds.has('RSI')) {
+    if (inds.has('RSI') && !indSeriesMap.current.has('RSI')) {
       const rsi = chart.addLineSeries({ color: 'rgba(255,100,150,0.85)', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, priceScaleId: 'rsi' });
       chart.priceScale('rsi').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 }, borderColor: 'rgba(255,255,255,0.06)' });
       rsi.setData(calcRSI(bars));
-      indicatorSeriesRefs.current.push(rsi);
+      indSeriesMap.current.set('RSI', [rsi]);
     }
-    if (inds.has('MACD')) {
+    if (inds.has('MACD') && !indSeriesMap.current.has('MACD')) {
       const { macdSeries, signalSeries } = calcMACD(bars);
-      const sM = chart.addLineSeries({ color: 'rgba(80,200,255,0.85)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, priceScaleId: 'macd' });
+      const sM = chart.addLineSeries({ color: 'rgba(80,200,255,0.85)',  lineWidth: 1, priceLineVisible: false, lastValueVisible: false, priceScaleId: 'macd' });
       const sS = chart.addLineSeries({ color: 'rgba(255,120,80,0.85)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, priceScaleId: 'macd' });
       chart.priceScale('macd').applyOptions({ scaleMargins: { top: 0.75, bottom: 0 }, borderColor: 'rgba(255,255,255,0.06)' });
       sM.setData(macdSeries); sS.setData(signalSeries);
-      indicatorSeriesRefs.current.push(sM, sS);
+      indSeriesMap.current.set('MACD', [sM, sS]);
     }
-  }, [clearIndicators]);
 
-  // ── build main series
-  const buildMainSeries = useCallback(() => {
-    if (!chartRef.current) return;
-    if (mainSeriesRef.current) { try { chartRef.current.removeSeries(mainSeriesRef.current); } catch {} mainSeriesRef.current = null; }
+    // Refresh data for existing indicators when bars change
+    if (indSeriesMap.current.has('MA')) {
+      const [s20, s50] = indSeriesMap.current.get('MA')!;
+      s20.setData(calcSMA(bars, 20));
+      s50.setData(calcSMA(bars, 50));
+    }
+    if (indSeriesMap.current.has('BB')) {
+      const { upper, lower, mid } = calcBB(bars);
+      const [sU, sM, sL] = indSeriesMap.current.get('BB')!;
+      sU.setData(upper); sM.setData(mid); sL.setData(lower);
+    }
+    if (indSeriesMap.current.has('RSI')) {
+      indSeriesMap.current.get('RSI')![0].setData(calcRSI(bars));
+    }
+    if (indSeriesMap.current.has('MACD')) {
+      const { macdSeries, signalSeries } = calcMACD(bars);
+      const [sM, sS] = indSeriesMap.current.get('MACD')!;
+      sM.setData(macdSeries); sS.setData(signalSeries);
+    }
+  }, []);
+
+  // ── clear all indicators ─────────────────────────────────────────────────────
+  const clearAllIndicators = useCallback(() => {
     const chart = chartRef.current;
-    if (chartType === 'candle') {
+    if (!chart) return;
+    for (const series of indSeriesMap.current.values())
+      for (const s of series) try { chart.removeSeries(s); } catch {}
+    indSeriesMap.current.clear();
+  }, []);
+
+  // ── build main series ────────────────────────────────────────────────────────
+  const buildMainSeries = useCallback((type: ChartType) => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (mainSeriesRef.current) {
+      try { chart.removeSeries(mainSeriesRef.current); } catch {}
+      mainSeriesRef.current = null;
+    }
+    if (type === 'candle') {
       mainSeriesRef.current = chart.addCandlestickSeries({
         upColor: 'rgba(38,166,154,1)', downColor: 'rgba(239,83,80,1)',
         borderVisible: false,
         wickUpColor: 'rgba(38,166,154,0.75)', wickDownColor: 'rgba(239,83,80,0.75)',
       });
-    } else if (chartType === 'bar') {
+    } else if (type === 'bar') {
       mainSeriesRef.current = chart.addBarSeries({ upColor: 'rgba(38,166,154,1)', downColor: 'rgba(239,83,80,1)' });
-    } else if (chartType === 'line') {
+    } else if (type === 'line') {
       mainSeriesRef.current = chart.addLineSeries({ color: 'rgba(80,160,255,0.9)', lineWidth: 2, priceLineVisible: false });
-    } else if (chartType === 'area') {
+    } else {
       mainSeriesRef.current = chart.addAreaSeries({ lineColor: 'rgba(80,160,255,0.9)', topColor: 'rgba(80,160,255,0.25)', bottomColor: 'rgba(80,160,255,0)', lineWidth: 2, priceLineVisible: false });
     }
+  }, []);
+
+  // ── chart type change ────────────────────────────────────────────────────────
+  useEffect(() => {
+    buildMainSeries(chartType);
+    const bars = rawBarsRef.current;
+    if (!bars.length || !mainSeriesRef.current) return;
+    if (chartType === 'line' || chartType === 'area') {
+      (mainSeriesRef.current as ISeriesApi<'Line'>).setData(bars.map(b => ({ time: b.time, value: b.close })));
+    } else {
+      (mainSeriesRef.current as ISeriesApi<'Candlestick'>).setData(bars as CandlestickData[]);
+    }
+    clearAllIndicators();
+    applyIndicators(bars, indicatorsRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartType]);
 
-  // rebuild series on chart type change, re-feed bars
+  // ── indicator toggle — diff only, no refetch ─────────────────────────────────
   useEffect(() => {
-    buildMainSeries();
-    if (rawBarsRef.current.length && mainSeriesRef.current) {
-      const bars = rawBarsRef.current;
-      if (chartType === 'line' || chartType === 'area') {
-        (mainSeriesRef.current as ISeriesApi<'Line'>).setData(bars.map((b) => ({ time: b.time, value: b.close })));
-      } else {
-        (mainSeriesRef.current as ISeriesApi<'Candlestick'>).setData(bars as CandlestickData[]);
-      }
-      clearIndicators();
-      applyIndicators(bars, indicators);
-    }
-  }, [chartType, buildMainSeries, clearIndicators, applyIndicators, indicators]);
+    const bars = rawBarsRef.current;
+    if (!bars.length) return;
+    applyIndicators(bars, indicators);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indicators]);
 
-  // ── fetch candles (RAF-batched + hash-guarded)
+  // ── fetch candles — deps: symbol+exchange+interval ONLY ──────────────────────
+  // chartType and indicators NOT in deps → no refetch on indicator/type change
   const fetchCandles = useCallback(async () => {
     if (!mountedRef.current) return;
     abortRef.current?.abort();
@@ -621,7 +668,6 @@ const LightweightChart = memo(function LightweightChart({
       const sym = symbol.replace('/', '').replace('-', '').toUpperCase();
 
       if (exchange === 'bybit' || exchange === 'okx') {
-        // prefer Bybit for all (works from CF SG, avoids fapi 403)
         const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${sym}&interval=${BYBIT_TF[interval]}&limit=300`;
         const res = await fetch(url, { signal: ac.signal });
         const json = await res.json();
@@ -645,7 +691,6 @@ const LightweightChart = memo(function LightweightChart({
 
       if (!mountedRef.current || ac.signal.aborted || !bars.length) return;
 
-      // hash guard — skip identical data
       const newHash = `${bars.length}-${bars[bars.length - 1]?.close}`;
       if (newHash === lastBarsHash.current) return;
       lastBarsHash.current = newHash;
@@ -654,20 +699,25 @@ const LightweightChart = memo(function LightweightChart({
       rafRef.current = requestAnimationFrame(() => {
         if (!mountedRef.current || !mainSeriesRef.current) return;
         rawBarsRef.current = bars;
-        if (chartType === 'line' || chartType === 'area') {
-          (mainSeriesRef.current as ISeriesApi<'Line'>).setData(bars.map((b) => ({ time: b.time, value: b.close })));
+        const ct = chartTypeRef.current;
+        if (ct === 'line' || ct === 'area') {
+          (mainSeriesRef.current as ISeriesApi<'Line'>).setData(bars.map(b => ({ time: b.time, value: b.close })));
         } else {
           (mainSeriesRef.current as ISeriesApi<'Candlestick'>).setData(bars as CandlestickData[]);
         }
-        applyIndicators(bars, indicators);
+        applyIndicators(bars, indicatorsRef.current);
         chartRef.current?.timeScale().fitContent();
       });
     } catch (e: unknown) {
       if ((e as Error)?.name !== 'AbortError') console.warn('[LightweightChart] fetch err', e);
     }
-  }, [symbol, exchange, interval, chartType, indicators, applyIndicators]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, exchange, interval]); // chartType + indicators intentionally excluded
 
-  useEffect(() => { buildMainSeries(); }, [buildMainSeries]);
+  useEffect(() => {
+    buildMainSeries(chartTypeRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     lastBarsHash.current = '';
@@ -678,23 +728,29 @@ const LightweightChart = memo(function LightweightChart({
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; abortRef.current?.abort(); };
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+      clearAllIndicators();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // clear drawings on symbol/interval change
+  // ── clear drawings on symbol/interval change ──────────────────────────────────
   useEffect(() => {
     drawings.current = [];
-    const ctx = canvasRef.current?.getContext('2d');
-    if (ctx && canvasRef.current) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (ctx && canvas) ctx.clearRect(0, 0, canvas.width, canvas.height);
   }, [symbol, interval]);
 
-  // ── drawing canvas events
+  // ── drawing canvas events ─────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    canvas.style.cursor       = drawTool !== 'none' ? 'crosshair' : 'default';
+    canvas.style.cursor        = drawTool !== 'none' ? 'crosshair' : 'default';
     canvas.style.pointerEvents = drawTool !== 'none' ? 'auto' : 'none';
 
     const pt = (e: MouseEvent): DrawPoint => {
@@ -703,7 +759,7 @@ const LightweightChart = memo(function LightweightChart({
     };
     const onDown = (e: MouseEvent) => {
       if (drawTool === 'none') return;
-      isDrawing.current = true;
+      isDrawing.current     = true;
       activeDrawing.current = { tool: drawTool, p1: pt(e), p2: pt(e) };
     };
     const onMove = (e: MouseEvent) => {
@@ -720,17 +776,17 @@ const LightweightChart = memo(function LightweightChart({
     };
     canvas.addEventListener('mousedown', onDown);
     canvas.addEventListener('mousemove', onMove);
-    canvas.addEventListener('mouseup', onUp);
+    canvas.addEventListener('mouseup',   onUp);
     return () => {
       canvas.removeEventListener('mousedown', onDown);
       canvas.removeEventListener('mousemove', onMove);
-      canvas.removeEventListener('mouseup', onUp);
+      canvas.removeEventListener('mouseup',   onUp);
     };
   }, [drawTool]);
 
-  // ── indicator toggle
+  // ── indicator toggle ──────────────────────────────────────────────────────────
   const handleToggleIndicator = useCallback((k: IndicatorKey) => {
-    setIndicators((prev) => {
+    setIndicators(prev => {
       const next = new Set(prev);
       if (next.has(k)) next.delete(k); else next.add(k);
       return next;
@@ -739,14 +795,11 @@ const LightweightChart = memo(function LightweightChart({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(10,13,20,1)' }}>
-      {/* Mobile stats strip */}
       {ticker && symbolInfo && (
         <div className="mobile-chart-stats">
           <MobileStatsStrip ticker={ticker} symbolInfo={symbolInfo} />
         </div>
       )}
-
-      {/* Compact toolbar */}
       <Toolbar
         interval={interval}
         chartType={chartType}
@@ -757,8 +810,6 @@ const LightweightChart = memo(function LightweightChart({
         onToggleIndicator={handleToggleIndicator}
         onDrawTool={setDrawTool}
       />
-
-      {/* Chart + drawing canvas stacked */}
       <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
         <canvas
@@ -766,7 +817,6 @@ const LightweightChart = memo(function LightweightChart({
           style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
         />
       </div>
-
       <style>{`.mobile-chart-stats{display:none}@media(max-width:767px){.mobile-chart-stats{display:block}}`}</style>
     </div>
   );
