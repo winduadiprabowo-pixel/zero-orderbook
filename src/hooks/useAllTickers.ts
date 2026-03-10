@@ -129,5 +129,5 @@ export function useAllTickers(): TickerMap {
     };
   }, [fetchAll]);
 
-  return tickers;
+  return { tickers, refetch: fetchAll };
 }
