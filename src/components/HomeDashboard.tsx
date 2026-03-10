@@ -44,10 +44,14 @@ const WATCHLIST_SYMS = [
 const MIN_MOVER_VOL = 1_000_000;
 
 const HEATMAP_COINS = [
-  { sym: 'BTCUSDT', label: 'BTC' },
-  { sym: 'ETHUSDT', label: 'ETH' },
-  { sym: 'SOLUSDT', label: 'SOL' },
-  { sym: 'BNBUSDT', label: 'BNB' },
+  { sym: 'BTCUSDT',  label: 'BTC'  },
+  { sym: 'ETHUSDT',  label: 'ETH'  },
+  { sym: 'SOLUSDT',  label: 'SOL'  },
+  { sym: 'BNBUSDT',  label: 'BNB'  },
+  { sym: 'XRPUSDT',  label: 'XRP'  },
+  { sym: 'DOGEUSDT', label: 'DOGE' },
+  { sym: 'AVAXUSDT', label: 'AVAX' },
+  { sym: 'LINKUSDT', label: 'LINK' },
 ] as const;
 
 const EX_META: Record<ExchangeId, { label: string; color: string }> = {
@@ -230,74 +234,162 @@ Sparkline.displayName = 'Sparkline';
 
 // ─── Onboarding Overlay ───────────────────────────────────────────────────────
 
-const STEPS = [
-  { icon: '📊', title: 'Market Pulse',    desc: 'Live market cap, BTC dominance, volume & Fear/Greed — real-time.' },
-  { icon: '⚡', title: 'Exchange Compare', desc: 'Tap exchange card untuk switch. BEST badge otomatis highlight exchange termurah.' },
-  { icon: '🔥', title: 'Top Movers',       desc: 'Filter Gainers / Losers / All. Tap coin langsung buka chart.' },
-  { icon: '📱', title: 'Install App',      desc: 'Install sebagai PWA — works offline, no ads, no store needed.' },
+// ── v79: Onboarding steps — concise, trader-focused ─────────────────────────
+interface OnboardStep {
+  accent: string;
+  icon: string;
+  title: string;
+  desc: string;
+  hint: string;
+}
+
+const STEPS: OnboardStep[] = [
+  {
+    accent: 'rgba(242,162,33,1)',
+    icon: '⚡',
+    title: 'Real-Time Order Book',
+    desc: 'Bybit · Binance · OKX — live bid/ask depth, trades & liquidations. Sub-100ms latency via direct WS.',
+    hint: 'Tap exchange card to switch feed instantly',
+  },
+  {
+    accent: 'rgba(0,255,157,1)',
+    icon: '📊',
+    title: 'Market Heatmap',
+    desc: '8 major coins. Color intensity = % move strength. Volume bar = relative liquidity. Tap any cell to open chart.',
+    hint: 'Brighter = bigger move',
+  },
+  {
+    accent: 'rgba(255,59,92,1)',
+    icon: '🔥',
+    title: 'Top Movers',
+    desc: 'Filter Gainers / Losers / All. Min $1M volume — no low-cap noise. Search any pair instantly.',
+    hint: 'Tap coin → switch to that chart',
+  },
+  {
+    accent: 'rgba(0,200,255,1)',
+    icon: '💎',
+    title: 'PRO Features',
+    desc: 'Depth Chart, Liquidation Feed & Market Data locked behind one-time $9 lifetime access. No subscription.',
+    hint: 'Tap any locked panel → Unlock PRO',
+  },
 ];
 
 const OnboardingOverlay = memo(({ onDone }: { onDone: () => void }) => {
   const [step, setStep] = useState(0);
   const isLast = step === STEPS.length - 1;
+  const s = STEPS[step];
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 999,
-      background: 'rgba(5,7,15,0.97)',
-      display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center',
-      padding: '32px 24px',
-      fontFamily: '"IBM Plex Mono", monospace',
-    }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 36 }}>
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 999,
+        background: 'rgba(5,7,15,0.98)',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        padding: '32px 20px',
+        fontFamily: '"IBM Plex Mono", monospace',
+      }}
+    >
+      {/* Header — logo + brand */}
+      <div style={{ marginBottom: 32, textAlign: 'center' as const }}>
+        <div style={{ fontSize: 28, marginBottom: 4 }}>⬛</div>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 3, color: COLORS.gold }}>
+          ZERØ ORDER BOOK
+        </div>
+      </div>
+
+      {/* Step card */}
+      <div style={{
+        background: COLORS.panel,
+        border: `1px solid ${s.accent.replace(',1)', ',0.30)')}`,
+        borderTop: `2px solid ${s.accent}`,
+        borderRadius: 18,
+        padding: '28px 24px 24px',
+        maxWidth: 320, width: '100%',
+        textAlign: 'center' as const,
+        boxShadow: `0 0 40px ${s.accent.replace(',1)', ',0.08)')}`,
+        transition: 'border-color 0.3s, box-shadow 0.3s',
+      }}>
+        {/* Icon */}
+        <div style={{ fontSize: 44, marginBottom: 16, lineHeight: 1 }}>{s.icon}</div>
+
+        {/* Title */}
+        <div style={{ fontSize: 16, fontWeight: 800, color: COLORS.text, marginBottom: 10, letterSpacing: '-0.02em' }}>
+          {s.title}
+        </div>
+
+        {/* Desc */}
+        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.75, marginBottom: 16 }}>
+          {s.desc}
+        </div>
+
+        {/* Hint chip */}
+        <div style={{
+          display: 'inline-block',
+          background: s.accent.replace(',1)', ',0.10)'),
+          border: `1px solid ${s.accent.replace(',1)', ',0.25)')}`,
+          borderRadius: 20, padding: '5px 12px',
+          fontSize: 10, color: s.accent,
+          letterSpacing: '0.03em',
+        }}>
+          {s.hint}
+        </div>
+      </div>
+
+      {/* Progress dots */}
+      <div style={{ display: 'flex', gap: 7, margin: '22px 0 20px' }}>
         {STEPS.map((_, i) => (
-          <div key={i} style={{
-            width: i === step ? 24 : 8, height: 8, borderRadius: 4,
-            background: i === step ? COLORS.gold : COLORS.border,
-            transition: 'all 0.3s',
-          }} />
+          <div
+            key={i}
+            onClick={() => setStep(i)}
+            style={{
+              width: i === step ? 22 : 7, height: 7,
+              borderRadius: 4,
+              background: i === step ? s.accent : COLORS.border,
+              transition: 'all 0.3s',
+              cursor: 'pointer',
+            }}
+          />
         ))}
       </div>
-      <div style={{
-        background: COLORS.panel, border: `1px solid ${COLORS.border}`,
-        borderRadius: 20, padding: '32px 28px',
-        maxWidth: 320, width: '100%', textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 48, marginBottom: 18 }}>{STEPS[step].icon}</div>
-        <div style={{ fontSize: 17, fontWeight: 700, color: COLORS.text, marginBottom: 12 }}>
-          {STEPS[step].title}
-        </div>
-        <div style={{ fontSize: 13, color: COLORS.muted, lineHeight: 1.7 }}>
-          {STEPS[step].desc}
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 12, marginTop: 28 }}>
+
+      {/* Buttons */}
+      <div style={{ display: 'flex', gap: 10, width: '100%', maxWidth: 320 }}>
         {!isLast && (
-          <button onClick={onDone} style={{
-            padding: '12px 18px', borderRadius: 10,
-            border: `1px solid ${COLORS.border}`, background: 'transparent',
-            color: COLORS.muted, fontSize: 12,
-            fontFamily: '"IBM Plex Mono", monospace', cursor: 'pointer',
-          }}>Skip</button>
+          <button
+            onClick={onDone}
+            style={{
+              flex: 1, padding: '12px 0', borderRadius: 10,
+              border: `1px solid ${COLORS.border}`, background: 'transparent',
+              color: 'rgba(255,255,255,0.30)', fontSize: 11,
+              fontFamily: '"IBM Plex Mono", monospace', cursor: 'pointer',
+            }}
+          >
+            Skip
+          </button>
         )}
         <button
           onClick={() => isLast ? onDone() : setStep(s => s + 1)}
           style={{
-            padding: '12px 28px', borderRadius: 10, border: 'none',
-            background: COLORS.gold, color: 'rgba(0,0,0,1)',
-            fontSize: 13, fontWeight: 700,
-            fontFamily: '"IBM Plex Mono", monospace', cursor: 'pointer',
-            minWidth: 120,
+            flex: isLast ? 1 : 2,
+            padding: '13px 0',
+            borderRadius: 10, border: 'none',
+            background: isLast ? COLORS.gold : s.accent,
+            color: 'rgba(0,0,0,1)',
+            fontSize: 13, fontWeight: 800,
+            fontFamily: '"IBM Plex Mono", monospace',
+            cursor: 'pointer',
+            letterSpacing: '0.04em',
           }}
         >
-          {isLast ? 'Get Started 🚀' : 'Next →'}
+          {isLast ? 'Start Trading →' : 'Next →'}
         </button>
       </div>
     </div>
   );
 });
 OnboardingOverlay.displayName = 'OnboardingOverlay';
+
 
 // ─── Pull To Refresh ──────────────────────────────────────────────────────────
 
@@ -380,50 +472,90 @@ PullToRefresh.displayName = 'PullToRefresh';
 
 const MarketHeatmap = memo(({
   tickerMap, onSelectSymbol,
-}: { tickerMap: TickerMap; onSelectSymbol: (s: string) => void }) => (
-  <div>
-    <SectionTitle label="Heatmap" />
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-      {HEATMAP_COINS.map(({ sym, label }) => {
-        const t   = tickerMap.get(sym.toUpperCase());
-        const pct = t?.changePct ?? 0;
-        const int = Math.min(Math.abs(pct) / 6, 1);
-        const bg  = pct >= 0
-          ? `rgba(0,255,157,${0.06 + int * 0.20})`
-          : `rgba(255,59,92,${0.06 + int * 0.20})`;
-        const bd  = pct >= 0
-          ? `rgba(0,255,157,${0.15 + int * 0.30})`
-          : `rgba(255,59,92,${0.15 + int * 0.30})`;
-        return (
-          <button
-            key={sym}
-            onClick={() => onSelectSymbol(sym)}
-            style={{
-              background: bg, border: `1px solid ${bd}`,
-              borderRadius: 14, padding: '14px 12px',
-              cursor: 'pointer', textAlign: 'left',
-              minHeight: 76, transition: 'all 0.2s',
-              WebkitTapHighlightColor: 'transparent',
-            }}
-          >
-            <div style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: 13, fontWeight: 700, color: COLORS.text, marginBottom: 3 }}>
-              {label}
-            </div>
-            <div style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: 10, color: COLORS.muted, marginBottom: 6 }}>
-              {t ? fmtPrice(t.lastPrice) : '—'}
-            </div>
-            <div style={{
-              fontFamily: '"IBM Plex Mono", monospace', fontSize: 12, fontWeight: 700,
-              color: pct >= 0 ? COLORS.bid : COLORS.ask,
-            }}>
-              {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
-            </div>
-          </button>
-        );
-      })}
+}: { tickerMap: TickerMap; onSelectSymbol: (s: string) => void }) => {
+  // Relative intensity: compare each coin against the biggest mover in the group
+  const maxPct = useMemo(() => {
+    let m = 1;
+    HEATMAP_COINS.forEach(({ sym }) => {
+      const t = tickerMap.get(sym.toUpperCase());
+      if (t) m = Math.max(m, Math.abs(t.changePct));
+    });
+    return m;
+  }, [tickerMap]);
+
+  const maxVol = useMemo(() => {
+    let m = 1;
+    HEATMAP_COINS.forEach(({ sym }) => {
+      const t = tickerMap.get(sym.toUpperCase());
+      if (t) m = Math.max(m, t.volume24h);
+    });
+    return m;
+  }, [tickerMap]);
+
+  return (
+    <div>
+      <SectionTitle label="Heatmap" />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+        {HEATMAP_COINS.map(({ sym, label }) => {
+          const t          = tickerMap.get(sym.toUpperCase());
+          const pct        = t?.changePct ?? 0;
+          const int        = Math.min(Math.abs(pct) / maxPct, 1);
+          const isUp       = pct >= 0;
+          const isExtreme  = Math.abs(pct) >= 5;
+          const c          = isUp ? COLORS.bid : COLORS.ask;
+          const bg         = isUp
+            ? `rgba(0,255,157,${0.04 + int * 0.22})`
+            : `rgba(255,59,92,${0.04 + int * 0.22})`;
+          const bd         = isUp
+            ? `rgba(0,255,157,${0.12 + int * 0.38})`
+            : `rgba(255,59,92,${0.12 + int * 0.38})`;
+          const glow       = isExtreme
+            ? `0 0 16px ${isUp ? 'rgba(0,255,157,0.22)' : 'rgba(255,59,92,0.22)'}`
+            : 'none';
+          const volPct     = t ? Math.min(t.volume24h / maxVol, 1) : 0;
+
+          return (
+            <button
+              key={sym}
+              onClick={() => onSelectSymbol(sym)}
+              style={{
+                background: bg, border: `1px solid ${bd}`,
+                borderRadius: 12, padding: '11px 11px 9px',
+                cursor: 'pointer', textAlign: 'left' as const,
+                minHeight: 82, transition: 'all 0.2s',
+                WebkitTapHighlightColor: 'transparent',
+                boxShadow: glow,
+                position: 'relative' as const,
+                overflow: 'hidden' as const,
+              }}
+            >
+              {/* Volume bar — bottom strip, width = relative volume */}
+              <div style={{
+                position: 'absolute' as const,
+                bottom: 0, left: 0,
+                width: `${volPct * 100}%`, height: 3,
+                background: isUp
+                  ? `rgba(0,255,157,${0.25 + int * 0.50})`
+                  : `rgba(255,59,92,${0.25 + int * 0.50})`,
+                borderRadius: '0 0 12px 0',
+                transition: 'width 0.6s',
+              }} />
+              <div style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: 13, fontWeight: 800, color: COLORS.text, marginBottom: 3, letterSpacing: '-0.02em' }}>
+                {label}
+              </div>
+              <div style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: 9.5, color: COLORS.muted, marginBottom: 7 }}>
+                {t ? fmtPrice(t.lastPrice) : '—'}
+              </div>
+              <div style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: 14, fontWeight: 800, color: c, letterSpacing: '-0.03em' }}>
+                {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </div>
-  </div>
-));
+  );
+});
 MarketHeatmap.displayName = 'MarketHeatmap';
 
 // ─── Section Title helper ─────────────────────────────────────────────────────
@@ -457,6 +589,7 @@ interface HomeDashboardProps {
   currentExchange:  ExchangeId;
   onSelectExchange: (ex: ExchangeId) => void;
   onSelectSymbol:   (sym: string) => void;
+  onRefresh?:       () => Promise<void>;
 }
 
 const HomeDashboard = memo(({
@@ -466,6 +599,7 @@ const HomeDashboard = memo(({
   currentExchange,
   onSelectExchange,
   onSelectSymbol,
+  onRefresh,
 }: HomeDashboardProps) => {
 
   // Onboarding — first time only
@@ -528,9 +662,14 @@ const HomeDashboard = memo(({
   }, []); // once per mount
 
   // Pull-to-refresh — WS auto-refreshes, just UX delay
+  // PTR: delegate to parent refetch (tickers REST + globalStats query invalidate)
   const handleRefresh = useCallback(async () => {
-    await new Promise<void>(r => setTimeout(r, 800));
-  }, []);
+    if (onRefresh) {
+      await onRefresh();
+    } else {
+      await new Promise<void>(r => setTimeout(r, 600));
+    }
+  }, [onRefresh]);
 
   // Top movers from tickerMap — FIX v78: filter low-volume noise, sort by abs(pct)
   const allMovers = useMemo(() => {
