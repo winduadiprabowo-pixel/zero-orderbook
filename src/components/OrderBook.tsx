@@ -281,6 +281,60 @@ const ColHeader = memo(function ColHeader({
   );
 });
 
+// ─── Asks Panel — lowest ask nearest spread, no text flip ────────────────────
+// Renders asks in a div that scrolls to bottom, so lowest ask is at bottom
+
+interface AsksPanelProps {
+  levels:   ProcessedLevel[];
+  height:   number;
+  priceDec: number;
+  sizeDec:  number;
+  onHover?: (price: number | null) => void;
+  onCopy?:  (price: number) => void;
+}
+
+const AsksPanel = memo(function AsksPanel({
+  levels, height, priceDec, sizeDec, onHover, onCopy,
+}: AsksPanelProps) {
+  AsksPanel.displayName = 'AsksPanel';
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // auto-scroll to bottom so lowest ask is always visible near spread
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [levels]);
+
+  return (
+    <div
+      ref={scrollRef}
+      style={{
+        height,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        scrollbarWidth: 'none',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'flex-end',
+      }}
+    >
+      {/* asks sorted high→low, lowest at bottom nearest spread */}
+      {levels.map((lvl) => (
+        <OBRow
+          key={lvl.price}
+          level={lvl}
+          side="ask"
+          priceDec={priceDec}
+          sizeDec={sizeDec}
+          onHover={onHover}
+          onCopy={onCopy}
+        />
+      ))}
+    </div>
+  );
+});
+
 // ─── PressureBar (exported — used in Index.tsx mobile view) ──────────────────
 
 export const PressureBar = memo(function PressureBar({ bidPercent }: { bidPercent: number }) {
@@ -377,18 +431,15 @@ const OrderBook = memo(function OrderBook({
         onPrecisionChange={onPrecisionChange}
       />
 
-      {/* ASKS — scaleY(-1) so lowest ask is nearest spread */}
-      <div style={{ transform: 'scaleY(-1)' }}>
-        <VirtualList
-          levels={[...procAsks].reverse()}
-          side="ask"
-          height={listH}
-          priceDec={priceDec}
-          sizeDec={sizeDec}
-          onHover={onPriceHover}
-          onCopy={onPriceCopy}
-        />
-      </div>
+      {/* ASKS — display highest ask at top, lowest ask nearest spread */}
+      <AsksPanel
+        levels={procAsks}
+        height={listH}
+        priceDec={priceDec}
+        sizeDec={sizeDec}
+        onHover={onPriceHover}
+        onCopy={onPriceCopy}
+      />
 
       <SpreadRow
         bestBid={bestBid}
