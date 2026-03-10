@@ -148,13 +148,15 @@ LicenseModal.displayName = 'LicenseModal';
 // ── ProLock — premium locked panel ───────────────────────────────────────────
 
 interface ProLockProps {
-  isPro:      boolean;
-  onClickPro: () => void;
-  children:   React.ReactNode;
-  label?:     string;
+  isPro:         boolean;
+  onClickPro:    () => void;
+  children:      React.ReactNode;
+  label?:        string;
+  onStartTrial?: () => void;
+  trialShown?:   boolean;
 }
 
-export const ProLock: React.FC<ProLockProps> = React.memo(({ isPro, onClickPro, children, label }) => {
+export const ProLock: React.FC<ProLockProps> = React.memo(({ isPro, onClickPro, children, label, onStartTrial, trialShown }) => {
   if (isPro) return <>{children}</>;
 
   const features: Record<string, { icon: string; desc: string }> = {
@@ -209,6 +211,26 @@ export const ProLock: React.FC<ProLockProps> = React.memo(({ isPro, onClickPro, 
         }}>
           UNLOCK PRO — $9
         </button>
+
+        {/* Try free — only shown if trial never used */}
+        {!trialShown && onStartTrial && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onStartTrial(); }}
+            style={{
+              padding: '7px 20px',
+              background: 'transparent',
+              border: '1px solid rgba(255,255,255,0.18)',
+              borderRadius: '6px',
+              fontSize: '9.5px', fontWeight: 600,
+              color: 'rgba(255,255,255,0.50)',
+              letterSpacing: '0.08em',
+              fontFamily: '"IBM Plex Mono", monospace',
+              cursor: 'pointer',
+            }}
+          >
+            TRY FREE — 5 MIN
+          </button>
+        )}
 
         {/* Tap hint — makes it super clear this is interactive */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '9px', color: 'rgba(255,255,255,0.28)', letterSpacing: '0.08em', fontFamily: '"IBM Plex Mono", monospace' }}>
