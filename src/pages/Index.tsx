@@ -35,6 +35,7 @@ import { useGlobalStats }  from '@/hooks/useGlobalStats';
 import { useMarketPairs }  from '@/hooks/useMarketPairs';
 import { useAllTickers }   from '@/hooks/useAllTickers';
 import type { TickerMap }  from '@/hooks/useAllTickers';
+import { useQueryClient }  from '@tanstack/react-query';
 import { formatCompact, formatPrice } from '@/lib/formatters';
 
 import {
@@ -711,7 +712,7 @@ const Index: React.FC = () => {
   const prevMidRef = useRef<number | null>(null);
 
   const { pairs, loading: pairsLoading, error: pairsError } = useMarketPairs();
-  const allTickers = useAllTickers();
+  const { tickers: allTickers, refetch: refetchTickers } = useAllTickers();
 
   const symbolInfo = useMemo(() => {
     const found = pairs.find((s) => s.symbol === activeSymbol);
@@ -744,6 +745,16 @@ const Index: React.FC = () => {
   }, [bids.length, ticker?.lastPrice]); // handled internally by hook
   const { events: liqEvents, stats: liqStats, wsStatus: liqStatus }  = useLiquidations();
   const globalStats                                                   = useGlobalStats();
+  const queryClient = useQueryClient();
+
+  // PTR: refresh tickers REST + invalidate globalStats query cache
+  const handleHomeRefresh = useCallback(async () => {
+    await Promise.all([
+      refetchTickers(),
+      queryClient.invalidateQueries({ queryKey: ['zero-global-stats'] }),
+      queryClient.invalidateQueries({ queryKey: ['zero-fear-greed'] }),
+    ]);
+  }, [refetchTickers, queryClient]);
 
   const midPrice = useMemo(() => {
     if (!bids.length || !asks.length) return null;
@@ -1093,6 +1104,7 @@ const Index: React.FC = () => {
               onSelectSymbol={handleSymbolChange}
               onSelectExchange={handleExchangeChange}
               currentExchange={exchange}
+              onRefresh={handleHomeRefresh}
             />
           </div>
           {/* MARKETS — coin list, tap to go to chart */}
