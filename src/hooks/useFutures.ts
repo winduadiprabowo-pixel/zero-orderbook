@@ -128,9 +128,9 @@ export function useFutures(symbol: string) {
     const SYM = symbol.toUpperCase();
 
     try {
-      // Fire all calls concurrently — Binance + Bybit fallback in parallel
-      const [binFm, binOi, binLsr, bybitData] = await Promise.all([
-        fetchBinanceFunding(SYM, controller.signal),
+      // NOTE v80: Binance fapi always 403 from CF SG datacenter → skip, go straight to Bybit
+      // Keep Binance OI + LSR attempts (sometimes works), but don't spam on funding
+      const [binOi, binLsr, bybitData] = await Promise.all([
         fetchBinanceOI(SYM, controller.signal),
         fetchBinanceLSR(SYM, controller.signal),
         fetchBybitFutures(SYM, controller.signal),
@@ -138,12 +138,12 @@ export function useFutures(symbol: string) {
 
       if (!mountedRef.current) return;
 
-      // Funding: prefer Binance, fallback Bybit
-      const fm = binFm ?? (bybitData ? {
+      // Funding: Bybit only (Binance fapi blocked from CF SG)
+      const fm = bybitData ? {
         fundingRate:     bybitData.fundingRate,
         markPrice:       bybitData.markPrice,
         nextFundingTime: bybitData.nextFundingTime,
-      } : null);
+      } : null;
 
       if (!fm) {
         // Keep prev data — avoid panel flicker on transient 403
@@ -154,7 +154,7 @@ export function useFutures(symbol: string) {
       // OI: prefer Binance, fallback Bybit
       const openInterest    = binOi?.openInterest ?? bybitData?.openInterest    ?? 0;
       const openInterestUsd = binOi
-        ? binOi.openInterest * fm.markPrice
+        ? binOi.openInterest * (fm?.markPrice ?? 0)
         : bybitData?.openInterestUsd ?? 0;
 
       setData({
