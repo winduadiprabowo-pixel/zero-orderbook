@@ -1,13 +1,9 @@
 // HomeDashboard.tsx — v78
-// FIX v74:
-//   - Props interface disesuaikan persis dengan Index.tsx:
-//       tickerMap: TickerMap (Map<string, TickerSnapshot>)
-//       globalStats: GlobalStats (dari types/market.ts)
-//       activeSymbol: string
-//       currentExchange: ExchangeId
-//       onSelectExchange: (ex: ExchangeId) => void
-//       onSelectSymbol: (sym: string) => void
-//   - Semua fitur v73 dipertahankan
+// FIX v78:
+//   - Exchange cards: per-exchange REST price (Binance/Bybit/OKX show real prices)
+//   - Top Movers: minimum $1M volume filter (removes low-liquidity noise)
+//   - ProLock: clear "TAP TO UNLOCK" hint text visible over blur
+//   - useExchangePrices: new hook, polls 3 exchanges independently every 10s
 
 import React, {
   useState,
@@ -21,6 +17,7 @@ import { createChart, ColorType } from 'lightweight-charts';
 import type { TickerMap } from '@/hooks/useAllTickers';
 import type { GlobalStats } from '@/types/market';
 import type { ExchangeId } from '@/hooks/useExchange';
+import { useExchangePrices } from '@/hooks/useExchangePrices';
 import CoinLogo from './CoinLogo';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -42,6 +39,9 @@ const WATCHLIST_SYMS = [
   'BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT',
   'BNBUSDT','AVAXUSDT','LINKUSDT','DOGEUSDT',
 ] as const;
+
+// FIX v78: minimum $1M volume to filter noise from top movers
+const MIN_MOVER_VOL = 1_000_000;
 
 const HEATMAP_COINS = [
   { sym: 'BTCUSDT', label: 'BTC' },
@@ -482,6 +482,9 @@ const HomeDashboard = memo(({
   const [search, setSearch]         = useState('');
   const news                        = useNews();
 
+  // FIX v78: per-exchange real prices for exchange cards
+  const exchangePrices = useExchangePrices('BTCUSDT', 10_000);
+
   // F&G tooltip
   const [showFgTip, setShowFgTip]   = useState(false);
 
@@ -529,10 +532,14 @@ const HomeDashboard = memo(({
     await new Promise<void>(r => setTimeout(r, 800));
   }, []);
 
-  // Top movers from tickerMap
+  // Top movers from tickerMap — FIX v78: filter low-volume noise, sort by abs(pct)
   const allMovers = useMemo(() => {
     const out: { sym: string; price: number; pct: number; vol: number }[] = [];
     tickerMap.forEach((t, sym) => {
+      // Skip stablecoins, BTC pairs against other coins, and low-vol noise
+      if (sym.endsWith('BTC') || sym.endsWith('ETH') || sym.endsWith('BNB')) return;
+      if (!sym.endsWith('USDT')) return;
+      if (t.volume24h < MIN_MOVER_VOL) return; // FIX: remove <$1M vol noise
       out.push({ sym, price: t.lastPrice, pct: t.changePct, vol: t.volume24h });
     });
     return out.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 30);
@@ -549,10 +556,19 @@ const HomeDashboard = memo(({
     return list.slice(0, 12);
   }, [allMovers, moversTab, search]);
 
-  // Best price exchange — all 3 use same Bybit feed per v72 note
-  // When per-exchange feeds are added, update this logic
+  // Best price exchange — FIX v78: real comparison from per-exchange REST prices
   const btcTicker  = tickerMap.get('BTCUSDT');
-  const bestEx     = 'bybit' as ExchangeId; // placeholder — update when real per-exchange prices exist
+  const bestEx = useMemo((): ExchangeId => {
+    const prices: [ExchangeId, number][] = [
+      ['binance', exchangePrices.binance.lastPrice],
+      ['bybit',   exchangePrices.bybit.lastPrice],
+      ['okx',     exchangePrices.okx.lastPrice],
+    ];
+    const valid = prices.filter(([, p]) => p > 0);
+    if (!valid.length) return 'bybit';
+    // Highest price = best for sellers (most commonly shown as "best")
+    return valid.reduce((a, b) => b[1] > a[1] ? b : a)[0];
+  }, [exchangePrices]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -641,7 +657,9 @@ const HomeDashboard = memo(({
                 const meta    = EX_META[ex];
                 const isActive = currentExchange === ex;
                 const isBest   = bestEx === ex;
-                const t        = tickerMap.get('BTCUSDT');
+                // FIX v78: use real per-exchange price (not shared Bybit feed)
+                const exPrice  = exchangePrices[ex];
+                const t        = exPrice.lastPrice > 0 ? exPrice : tickerMap.get('BTCUSDT');
                 const flash    = flashMap['BTCUSDT'];
                 return (
                   <button
@@ -675,19 +693,19 @@ const HomeDashboard = memo(({
                       {meta.label}
                     </div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.text, marginBottom: 5 }}>
-                      {t ? fmtPrice(t.lastPrice) : '—'}
+                      {exPrice.loading ? '—' : fmtPrice(exPrice.lastPrice > 0 ? exPrice.lastPrice : (t?.lastPrice ?? 0))}
                     </div>
                     <div style={{
                       display: 'inline-block', padding: '3px 6px', borderRadius: 6,
                       fontSize: 10, fontWeight: 700, marginBottom: 6,
-                      background: (t?.changePct ?? 0) >= 0 ? 'rgba(0,255,157,0.14)' : 'rgba(255,59,92,0.14)',
-                      color: (t?.changePct ?? 0) >= 0 ? COLORS.bid : COLORS.ask,
+                      background: (exPrice.changePct ?? t?.changePct ?? 0) >= 0 ? 'rgba(0,255,157,0.14)' : 'rgba(255,59,92,0.14)',
+                      color: (exPrice.changePct ?? t?.changePct ?? 0) >= 0 ? COLORS.bid : COLORS.ask,
                     }}>
-                      {(t?.changePct ?? 0) >= 0 ? '+' : ''}{(t?.changePct ?? 0).toFixed(2)}%
+                      {(exPrice.changePct ?? t?.changePct ?? 0) >= 0 ? '+' : ''}{(exPrice.changePct ?? t?.changePct ?? 0).toFixed(2)}%
                     </div>
                     {/* Volume — bold & readable */}
                     <div style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.50)', marginBottom: 7 }}>
-                      Vol {t ? fmtCompact(t.volume24h) : '—'}
+                      Vol {exPrice.volume24h > 0 ? fmtCompact(exPrice.volume24h) : (t ? fmtCompact(t.volume24h) : '—')}
                     </div>
                     {/* Sparkline */}
                     <Sparkline
