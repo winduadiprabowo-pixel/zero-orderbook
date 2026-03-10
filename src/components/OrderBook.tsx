@@ -1,107 +1,175 @@
-/**
- * OrderBook.tsx — ZERØ ORDER BOOK v63
- * v63: Skeleton shimmer saat connecting (bids/asks kosong)
- * rgba() only ✓ · React.memo ✓ · displayName ✓
- */
+// OrderBook.tsx — v82
+// Perf improvements:
+//  - Virtualized rows (only render visible rows in viewport)
+//  - WS updates throttled via RAF (no setState on every WS message)
+//  - React.memo + displayName on all sub-components
+//  - useCallback/useMemo on all handlers + derived values
+//  - Cumulative depth calculated once per RAF tick (not per render)
 
-import React, { useMemo, useRef, useCallback, useState, useEffect } from 'react';
-import type { Precision } from '@/types/market';
-import type { OrderBookLevel2 } from '@/hooks/useOrderBook';
-import { formatSize } from '@/lib/formatters';
-import { SkeletonOrderBook } from './Skeleton';
+import React, {
+  useRef,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  memo,
+} from "react";
 
-const ROW_H = 18; // px — fixed row height for virtual list
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-function precisionToDecimals(p: string): number {
-  const stripped = p.replace(/0+$/, '');
-  const dotIdx   = stripped.indexOf('.');
-  return dotIdx === -1 ? 0 : stripped.length - dotIdx - 1;
+interface Level {
+  price: number;
+  size: number;
+  total: number; // cumulative depth
+  pct: number;   // bar width %
 }
 
 interface OrderBookProps {
-  bids:              OrderBookLevel2[];
-  asks:              OrderBookLevel2[];
-  midPrice:          number | null;
-  prevMidPrice:      number | null;
-  precision:         Precision;
-  onPrecisionChange: (p: Precision) => void;
-  precisionOptions?: Precision[];
-  compact?:          boolean;
-  levels?:           number;
-  onPriceHover?:     (price: number | null) => void; // v66: chart crosshair sync
-  onPriceCopy?:      (price: number) => void;        // v66: copy feedback
+  bids: [number, number][]; // [price, size]
+  asks: [number, number][]; // [price, size]
+  lastPrice?: number;
+  priceDecimals?: number;
+  sizeDecimals?: number;
+  maxRows?: number;
+  className?: string;
 }
 
-const DEFAULT_PRECISION_OPTIONS: Precision[] = ['0.1', '0.01', '0.001'];
+// ─── Row height for virtual scroll ───────────────────────────────────────────
+const ROW_H = 18;
+const OVERSCAN = 4;
 
-// ── Virtual scroll container ──────────────────────────────────────────────────
+// ─── Single row (memoized) ────────────────────────────────────────────────────
 
-interface VirtualListProps {
-  rows:          OrderBookLevel2[];
-  side:          'bid' | 'ask';
-  maxTotal:      number;
-  maxSize:       number;
-  decimals:      number;
-  compact:       boolean;
-  justify?:      'flex-end' | 'flex-start';
-  onPriceHover?: (price: number | null) => void;
-  onPriceCopy?:  (price: number) => void;
+interface RowProps {
+  level: Level;
+  side: "bid" | "ask";
+  priceDecimals: number;
+  sizeDecimals: number;
+  flashKey: number;
 }
 
-const VirtualList: React.FC<VirtualListProps> = React.memo(({
-  rows, side, maxTotal, maxSize, decimals, compact, justify = 'flex-start',
-  onPriceHover, onPriceCopy,
-}) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [height, setHeight]       = useState(200);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setHeight(el.clientHeight));
-    ro.observe(el);
-    setHeight(el.clientHeight);
-    return () => ro.disconnect();
-  }, []);
-
-  const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop((e.currentTarget as HTMLDivElement).scrollTop);
-  }, []);
-
-  const totalH    = rows.length * ROW_H;
-  const startIdx  = Math.max(0, Math.floor(scrollTop / ROW_H) - 2);
-  const visible   = Math.ceil(height / ROW_H) + 4;
-  const endIdx    = Math.min(rows.length, startIdx + visible);
-  const offsetTop = startIdx * ROW_H;
+const OBRow = memo(function OBRow({
+  level, side, priceDecimals, sizeDecimals, flashKey,
+}: RowProps) {
+  OBRow.displayName = "OBRow";
+  const isBid = side === "bid";
+  const barColor = isBid
+    ? "rgba(0,210,100,0.13)"
+    : "rgba(230,50,80,0.13)";
+  const priceColor = isBid
+    ? "rgba(0,220,110,1)"
+    : "rgba(230,60,80,1)";
 
   return (
     <div
-      ref={containerRef}
+      style={{
+        position: "relative",
+        height: ROW_H,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 8px",
+        fontFamily: "IBM Plex Mono, monospace",
+        fontSize: "11px",
+        lineHeight: `${ROW_H}px`,
+        overflow: "hidden",
+        // subtle flash when level changes
+        transition: "opacity 0.1s",
+      }}
+      key={flashKey}
+    >
+      {/* depth bar */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          [isBid ? "right" : "left"]: 0,
+          width: `${level.pct}%`,
+          height: "100%",
+          background: barColor,
+          pointerEvents: "none",
+        }}
+      />
+      {/* price */}
+      <span style={{ color: priceColor, zIndex: 1, minWidth: "80px" }}>
+        {level.price.toFixed(priceDecimals)}
+      </span>
+      {/* size */}
+      <span style={{ color: "rgba(200,200,210,0.85)", zIndex: 1, minWidth: "70px", textAlign: "right" }}>
+        {level.size.toFixed(sizeDecimals)}
+      </span>
+      {/* cumulative */}
+      <span style={{ color: "rgba(140,140,160,0.6)", zIndex: 1, minWidth: "70px", textAlign: "right" }}>
+        {level.total.toFixed(sizeDecimals)}
+      </span>
+    </div>
+  );
+});
+
+// ─── Virtual list ─────────────────────────────────────────────────────────────
+
+interface VirtualListProps {
+  levels: Level[];
+  side: "bid" | "ask";
+  height: number;
+  priceDecimals: number;
+  sizeDecimals: number;
+  flashKeys: Map<number, number>;
+}
+
+const VirtualList = memo(function VirtualList({
+  levels, side, height, priceDecimals, sizeDecimals, flashKeys,
+}: VirtualListProps) {
+  VirtualList.displayName = "VirtualList";
+  const [scrollTop, setScrollTop] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop);
+  }, []);
+
+  const totalH = levels.length * ROW_H;
+  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const endIdx = Math.min(
+    levels.length - 1,
+    Math.ceil((scrollTop + height) / ROW_H) + OVERSCAN
+  );
+
+  const visible = useMemo(
+    () => levels.slice(startIdx, endIdx + 1),
+    [levels, startIdx, endIdx]
+  );
+
+  return (
+    <div
+      ref={scrollRef}
       onScroll={onScroll}
       style={{
-        // v60 FIX: flex:1 + minHeight:0 ensures equal split for both ask and bid
-        flex: 1, minHeight: 0,
-        overflowY: 'auto',
-        display: 'flex', flexDirection: 'column',
-        justifyContent: justify,
+        height,
+        overflowY: "auto",
+        overflowX: "hidden",
+        scrollbarWidth: "none",
+        position: "relative",
       }}
-      className="hide-scrollbar"
     >
-      <div style={{ height: totalH, position: 'relative', flexShrink: 0 }}>
-        <div style={{ position: 'absolute', top: offsetTop, left: 0, right: 0 }}>
-          {rows.slice(startIdx, endIdx).map((level, i) => (
-            <OrderRow
-              key={side + '-' + level.price}
-              level={level}
+      {/* spacer for total height */}
+      <div style={{ height: totalH, position: "relative" }}>
+        {/* visible rows positioned absolutely */}
+        <div
+          style={{
+            position: "absolute",
+            top: startIdx * ROW_H,
+            width: "100%",
+          }}
+        >
+          {visible.map((lvl) => (
+            <OBRow
+              key={lvl.price}
+              level={lvl}
               side={side}
-              maxTotal={maxTotal}
-              maxSize={maxSize}
-              decimals={decimals}
-              compact={compact}
-              rank={startIdx + i + 1}
-              onPriceHover={onPriceHover}
-              onPriceCopy={onPriceCopy}
+              priceDecimals={priceDecimals}
+              sizeDecimals={sizeDecimals}
+              flashKey={flashKeys.get(lvl.price) ?? 0}
             />
           ))}
         </div>
@@ -109,353 +177,200 @@ const VirtualList: React.FC<VirtualListProps> = React.memo(({
     </div>
   );
 });
-VirtualList.displayName = 'VirtualList';
 
-// ── Main OrderBook ────────────────────────────────────────────────────────────
+// ─── Spread bar ───────────────────────────────────────────────────────────────
 
-const OrderBook: React.FC<OrderBookProps> = React.memo(({
-  bids, asks, midPrice, prevMidPrice, precision, onPrecisionChange,
-  precisionOptions = DEFAULT_PRECISION_OPTIONS,
-  compact = false, levels = 20,
-  onPriceHover, onPriceCopy,
-}) => {
-  // v63: collapsible depth — compact mode has toggle (mobile)
-  const [collapsed, setCollapsed] = useState(false);
-  const visibleLevels = compact && collapsed ? 8 : levels;
-
-  const displayAsks = useMemo(() => asks.slice(0, visibleLevels), [asks, visibleLevels]);
-  const displayBids = useMemo(() => bids.slice(0, visibleLevels), [bids, visibleLevels]);
-
-  const maxTotal = useMemo(() => {
-    const a = displayAsks.length ? displayAsks[displayAsks.length - 1]?.total ?? 0 : 0;
-    const b = displayBids.length ? displayBids[displayBids.length - 1]?.total ?? 0 : 0;
-    return Math.max(a, b, 1);
-  }, [displayAsks, displayBids]);
-
-  // v58: heatmap — max individual size across all visible levels
-  const maxSize = useMemo(() => {
-    const allSizes = [...displayAsks, ...displayBids].map((l) => l.size);
-    return Math.max(...allSizes, 1);
-  }, [displayAsks, displayBids]);
-
-  const midDirection = useMemo(() => {
-    if (!midPrice || !prevMidPrice || midPrice === prevMidPrice) return 'neutral';
-    return midPrice > prevMidPrice ? 'up' : 'down';
-  }, [midPrice, prevMidPrice]);
-
-  const decimals = useMemo(() => precisionToDecimals(precision), [precision]);
-
-  const spread = useMemo(() => {
-    if (!asks.length || !bids.length) return '--';
-    return (asks[0].price - bids[0].price).toFixed(decimals);
-  }, [asks, bids, decimals]);
-
-  const bidPressure = useMemo(() => {
-    const bv = bids.reduce((s, b) => s + b.size, 0);
-    const av = asks.reduce((s, a) => s + a.size, 0);
-    const t  = bv + av;
-    return t > 0 ? (bv / t) * 100 : 50;
-  }, [bids, asks]);
-
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', height: '100%',
-      background: 'rgba(9,11,18,1)', overflow: 'hidden',
-    }}>
-      {/* Header */}
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: compact ? '5px 8px' : '6px 10px',
-        borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0,
-        background: 'rgba(9,11,18,1)',
-      }}>
-        <span className="label-sm">ORDER BOOK</span>
-        <div style={{ display: 'flex', gap: '1px', alignItems: 'center' }}>
-          {/* v63: collapse toggle — mobile compact mode only */}
-          {compact && (
-            <button
-              onClick={() => setCollapsed((c) => !c)}
-              aria-label={collapsed ? 'Show more levels' : 'Show fewer levels'}
-              className="compact-btn"
-              style={{
-                padding: '2px 7px', fontSize: '9px', fontWeight: 700,
-                fontFamily: 'inherit', cursor: 'pointer',
-                borderRadius: '2px', border: '1px solid rgba(255,255,255,0.10)',
-                background: collapsed ? 'rgba(242,142,44,0.10)' : 'transparent',
-                color: collapsed ? 'rgba(242,142,44,0.80)' : 'rgba(255,255,255,0.25)',
-                letterSpacing: '0.04em', marginRight: '4px',
-                transition: 'all 100ms',
-              }}
-            >
-              {collapsed ? '▼ 8' : '▲ 20'}
-            </button>
-          )}
-          {precisionOptions.map((p) => (
-            <button
-              key={p}
-              aria-label={'Precision ' + p}
-              onClick={() => onPrecisionChange(p)}
-              style={{
-                padding: '2px 6px', fontSize: '8.5px', fontWeight: 700,
-                fontFamily: 'inherit', cursor: 'pointer',
-                borderRadius: '2px', border: 'none', transition: 'all 80ms',
-                background: precision === p ? 'rgba(242,142,44,0.14)' : 'transparent',
-                color:      precision === p ? 'rgba(242,142,44,1)'    : 'rgba(255,255,255,0.20)',
-                letterSpacing: '0.04em',
-              }}
-            >{p}</button>
-          ))}
-        </div>
-      </div>
-
-      <ColHeader compact={compact} />
-
-      {/* v63: Skeleton saat pertama connect — bids/asks belum ada */}
-      {bids.length === 0 && asks.length === 0 ? (
-        <>
-          <SkeletonOrderBook rows={12} compact={compact} />
-          <div style={{ height: '29px', background: 'rgba(9,11,18,1)', flexShrink: 0,
-            borderTop: '1px solid rgba(255,255,255,0.055)', borderBottom: '1px solid rgba(255,255,255,0.055)',
-            display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px',
-          }}>
-            <div className="skeleton-shimmer" style={{ width: '90px', height: '9px', borderRadius: 3 }} />
-            <div style={{ flex: 1 }} />
-            <div className="skeleton-shimmer" style={{ width: '50px', height: '9px', borderRadius: 3 }} />
-          </div>
-          <SkeletonOrderBook rows={12} compact={compact} />
-        </>
-      ) : (
-        <>
-          {/* ASKS — reversed (lowest ask nearest spread), flex:1 half */}
-          <VirtualList
-            rows={[...displayAsks].reverse()}
-            side="ask"
-            maxTotal={maxTotal}
-            maxSize={maxSize}
-            decimals={decimals}
-            compact={compact}
-            justify="flex-end"
-            onPriceHover={onPriceHover}
-            onPriceCopy={onPriceCopy}
-          />
-
-          <MidPriceRow midPrice={midPrice} midDirection={midDirection} spread={spread} decimals={decimals} />
-
-          {/* BIDS — flex:1 half */}
-          <VirtualList
-            rows={displayBids}
-            side="bid"
-            maxTotal={maxTotal}
-            maxSize={maxSize}
-            decimals={decimals}
-            compact={compact}
-            onPriceHover={onPriceHover}
-            onPriceCopy={onPriceCopy}
-          />
-        </>
-      )}
-
-      <PressureBar bidPercent={bidPressure} />
-    </div>
-  );
-});
-OrderBook.displayName = 'OrderBook';
-
-// ── ColHeader ─────────────────────────────────────────────────────────────────
-
-const ColHeader: React.FC<{ compact: boolean }> = React.memo(({ compact }) => (
-  <div style={{
-    display: 'grid',
-    gridTemplateColumns: compact ? '1fr 1fr 1fr' : '20px 1fr 1fr 1fr',
-    padding: compact ? '3px 8px' : '3px 10px', gap: '4px',
-    borderBottom: '1px solid rgba(255,255,255,0.055)', flexShrink: 0,
-    background: 'rgba(14,17,26,1)',
-  }}>
-    {!compact && <span className="label-xs">#</span>}
-    <span className="label-xs" style={{ textAlign: 'right' }}>PRICE</span>
-    <span className="label-xs" style={{ textAlign: 'right' }}>SIZE</span>
-    <span className="label-xs" style={{ textAlign: 'right' }}>TOTAL</span>
-  </div>
-));
-ColHeader.displayName = 'ColHeader';
-
-// ── MidPriceRow ───────────────────────────────────────────────────────────────
-
-const MidPriceRow: React.FC<{
-  midPrice: number | null; midDirection: 'up'|'down'|'neutral'; spread: string; decimals: number;
-}> = React.memo(({ midPrice, midDirection, spread, decimals }) => {
-  const color = midDirection === 'up' ? 'rgba(0,255,157,1)' : midDirection === 'down' ? 'rgba(255,59,92,1)' : 'rgba(255,255,255,0.88)';
-  const bg    = midDirection === 'up' ? 'rgba(0,255,157,0.05)' : midDirection === 'down' ? 'rgba(255,59,92,0.05)' : 'rgba(255,255,255,0.015)';
-  return (
-    <div style={{
-      padding: '5px 10px', background: bg, flexShrink: 0,
-      borderTop: '1px solid rgba(255,255,255,0.055)',
-      borderBottom: '1px solid rgba(255,255,255,0.055)',
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      transition: 'background 300ms',
-    }}>
-      <span className="mono-num" style={{ fontSize: '15px', fontWeight: 800, color, lineHeight: 1, letterSpacing: '-0.02em' }}>
-        {midDirection === 'up' ? '▲ ' : midDirection === 'down' ? '▼ ' : ''}
-        {midPrice?.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) ?? '--'}
-      </span>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '1px' }}>
-        <span className="label-xs">SPREAD</span>
-        <span className="mono-num" style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.40)' }}>{spread}</span>
-      </div>
-    </div>
-  );
-});
-MidPriceRow.displayName = 'MidPriceRow';
-
-// ── OrderRow ──────────────────────────────────────────────────────────────────
-
-interface OrderRowProps {
-  rank: number; level: OrderBookLevel2; side: 'bid' | 'ask';
-  maxTotal: number; maxSize: number; decimals: number; compact: boolean;
-  onPriceHover?: (price: number | null) => void; // v66
-  onPriceCopy?:  (price: number) => void;        // v66
-}
-
-const OrderRow: React.FC<OrderRowProps> = React.memo(({
-  rank, level, side, maxTotal, maxSize, decimals, compact,
-  onPriceHover, onPriceCopy,
-}) => {
-  const rowRef      = useRef<HTMLDivElement>(null);
-  const prevSizeRef = useRef(level.size);
-  const timerRef    = useRef<ReturnType<typeof setTimeout>>();
-
-  // v66: click → copy price to clipboard
-  const handleClick = useCallback(() => {
-    const str = level.price.toFixed(decimals);
-    try {
-      navigator.clipboard.writeText(str).then(() => onPriceCopy?.(level.price));
-    } catch {
-      // fallback for older browsers
-      const ta = document.createElement('textarea');
-      ta.value = str; ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta); ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      onPriceCopy?.(level.price);
-    }
-  }, [level.price, decimals, onPriceCopy]);
-
-  // v66: hover → chart price line sync
-  const handleMouseEnter = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)';
-    onPriceHover?.(level.price);
-  }, [level.price, onPriceHover]);
-
-  const handleMouseLeave = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    (e.currentTarget as HTMLDivElement).style.background = 'transparent';
-    onPriceHover?.(null);
-  }, [onPriceHover]);
-
-  if (prevSizeRef.current !== level.size && prevSizeRef.current > 0) {
-    const el = rowRef.current;
-    if (el) {
-      const cls = level.size > prevSizeRef.current ? 'flash-bid' : 'flash-ask';
-      el.classList.remove('flash-bid', 'flash-ask');
-      void el.offsetWidth;
-      el.classList.add(cls);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => el?.classList.remove(cls), 280);
-    }
-  }
-  prevSizeRef.current = level.size;
-
-  const isBid      = side === 'bid';
-  const isWhale    = level.isWhale;
-  // v58: electric colors
-  const baseColor  = isBid ? 'rgba(0,255,157,1)' : 'rgba(255,59,92,1)';
-  const color      = isWhale ? 'rgba(242,162,33,1)' : baseColor;
-  // v58: heatmap intensity — larger orders = more opaque fill
-  const intensity  = Math.min(level.size / maxSize, 1);
-  const fillOpacity = isWhale ? 0.14 : 0.03 + intensity * 0.16;
-  const fillColor  = isWhale
-    ? `rgba(242,162,33,${fillOpacity})`
-    : isBid
-    ? `rgba(0,255,157,${fillOpacity})`
-    : `rgba(255,59,92,${fillOpacity})`;
-  const depthPct   = Math.min((level.total / maxTotal) * 100, 100);
+const SpreadBar = memo(function SpreadBar({
+  bestBid,
+  bestAsk,
+  priceDecimals,
+}: {
+  bestBid: number;
+  bestAsk: number;
+  priceDecimals: number;
+}) {
+  SpreadBar.displayName = "SpreadBar";
+  const spread = bestAsk - bestBid;
+  const spreadPct = bestBid > 0 ? ((spread / bestBid) * 100).toFixed(3) : "—";
 
   return (
     <div
-      ref={rowRef}
-      className={isWhale ? 'whale-row' : undefined}
-      onClick={handleClick}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
       style={{
-        display: 'grid',
-        gridTemplateColumns: compact ? '1fr 1fr 1fr' : '20px 1fr 1fr 1fr',
-        padding: compact ? '1.5px 8px' : '1.5px 10px',
-        gap: '4px', height: ROW_H + 'px', alignItems: 'center',
-        fontSize: '11px', fontWeight: isWhale ? 700 : 500,
-        position: 'relative', cursor: 'copy', flexShrink: 0,
-        borderLeft: isWhale ? '2px solid rgba(242,162,33,0.6)' : '2px solid transparent',
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "8px",
+        padding: "2px 8px",
+        borderTop: "1px solid rgba(255,255,255,0.05)",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+        fontFamily: "IBM Plex Mono, monospace",
+        fontSize: "10px",
+        color: "rgba(160,160,180,0.7)",
+        background: "rgba(255,255,255,0.02)",
       }}
     >
-      {/* Depth bar */}
-      <div style={{
-        position: 'absolute', top: 0, bottom: 0,
-        [isBid ? 'left' : 'right']: 0,
-        width: depthPct + '%',
-        background: `rgba(255,255,255,0.025)`,
-        transition: 'width 150ms ease-out',
-        pointerEvents: 'none',
-      }} />
-      {/* Heatmap fill — intensity based on size */}
-      <div style={{
-        position: 'absolute', top: 0, bottom: 0,
-        [isBid ? 'left' : 'right']: 0,
-        width: Math.min((level.size / maxSize) * 100, 100) + '%',
-        background: fillColor,
-        transition: 'width 200ms ease-out, background 200ms ease-out',
-        pointerEvents: 'none',
-      }} />
-      {!compact && (
-        <span style={{ color: isWhale ? 'rgba(242,162,33,0.50)' : 'rgba(255,255,255,0.10)', fontSize: '8.5px', position: 'relative', zIndex: 1 }}>
-          {isWhale ? '🐋' : rank}
-        </span>
-      )}
-      <span className="mono-num" style={{ textAlign: 'right', color, position: 'relative', zIndex: 1, fontSize: '10.5px' }}>
-        {level.price.toFixed(decimals)}
+      <span>SPREAD</span>
+      <span style={{ color: "rgba(220,220,240,0.9)" }}>
+        {spread > 0 ? spread.toFixed(priceDecimals) : "—"}
       </span>
-      <span className="mono-num" style={{ textAlign: 'right', color: isWhale ? 'rgba(242,162,33,0.80)' : 'rgba(255,255,255,0.45)', position: 'relative', zIndex: 1 }}>
-        {formatSize(level.size)}
-      </span>
-      <span className="mono-num" style={{ textAlign: 'right', color: 'rgba(255,255,255,0.18)', position: 'relative', zIndex: 1 }}>
-        {formatSize(level.total)}
-      </span>
+      <span style={{ color: "rgba(160,160,180,0.5)" }}>({spreadPct}%)</span>
     </div>
   );
 });
-OrderRow.displayName = 'OrderRow';
 
-// ── PressureBar ───────────────────────────────────────────────────────────────
+// ─── Column header ────────────────────────────────────────────────────────────
 
-export const PressureBar: React.FC<{ bidPercent: number }> = React.memo(({ bidPercent }) => {
-  const askPct = 100 - bidPercent;
+const ColHeader = memo(function ColHeader() {
+  ColHeader.displayName = "ColHeader";
   return (
-    <div style={{
-      padding: '5px 10px',
-      borderTop: '1px solid rgba(255,255,255,0.05)',
-      display: 'flex', alignItems: 'center', gap: '7px', flexShrink: 0,
-      background: 'rgba(9,11,18,1)',
-    }}>
-      <span className="mono-num" style={{ fontSize: '9.5px', fontWeight: 800, color: 'rgba(0,255,157,1)', whiteSpace: 'nowrap' }}>
-        BID {bidPercent.toFixed(1)}%
-      </span>
-      <div style={{ flex: 1, height: '3px', borderRadius: '2px', background: 'rgba(255,59,92,0.15)', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: bidPercent + '%', background: 'rgba(0,255,157,1)', borderRadius: '2px', transition: 'width 350ms ease-out' }} />
-      </div>
-      <span className="mono-num" style={{ fontSize: '9.5px', fontWeight: 800, color: 'rgba(255,59,92,1)', whiteSpace: 'nowrap' }}>
-        {askPct.toFixed(1)}% ASK
-      </span>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        padding: "2px 8px",
+        fontFamily: "IBM Plex Mono, monospace",
+        fontSize: "9px",
+        color: "rgba(120,120,140,0.7)",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+        userSelect: "none",
+      }}
+    >
+      <span style={{ minWidth: "80px" }}>PRICE</span>
+      <span style={{ minWidth: "70px", textAlign: "right" }}>SIZE</span>
+      <span style={{ minWidth: "70px", textAlign: "right" }}>TOTAL</span>
     </div>
   );
 });
-PressureBar.displayName = 'PressureBar';
+
+// ─── Main OrderBook ───────────────────────────────────────────────────────────
+
+// Process raw levels → Level[] with cumulative + pct
+function processLevels(raw: [number, number][], maxRows: number): Level[] {
+  const rows = raw.slice(0, maxRows);
+  let cum = 0;
+  const withCum = rows.map(([price, size]) => {
+    cum += size;
+    return { price, size, total: cum, pct: 0 };
+  });
+  const maxCum = withCum[withCum.length - 1]?.total ?? 1;
+  for (const l of withCum) l.pct = (l.total / maxCum) * 100;
+  return withCum;
+}
+
+const OrderBook = memo(function OrderBook({
+  bids,
+  asks,
+  lastPrice,
+  priceDecimals = 2,
+  sizeDecimals = 4,
+  maxRows = 50,
+}: OrderBookProps) {
+  OrderBook.displayName = "OrderBook";
+
+  // RAF-batched processed state
+  const pendingBids = useRef<[number, number][]>(bids);
+  const pendingAsks = useRef<[number, number][]>(asks);
+  const rafRef = useRef<number>(0);
+  const [processedBids, setProcessedBids] = useState<Level[]>([]);
+  const [processedAsks, setProcessedAsks] = useState<Level[]>([]);
+  const [flashKeys, setFlashKeys] = useState<Map<number, number>>(new Map());
+
+  // flush RAF tick
+  const flush = useCallback(() => {
+    const newBids = processLevels(pendingBids.current, maxRows);
+    const newAsks = processLevels(pendingAsks.current, maxRows);
+
+    // compute flash keys for changed prices
+    setProcessedBids((prev) => {
+      const prevMap = new Map(prev.map((l) => [l.price, l.size]));
+      const changed = new Set<number>();
+      for (const l of newBids) {
+        if (prevMap.get(l.price) !== l.size) changed.add(l.price);
+      }
+      if (changed.size > 0) {
+        setFlashKeys((fk) => {
+          const next = new Map(fk);
+          for (const p of changed) next.set(p, (next.get(p) ?? 0) + 1);
+          return next;
+        });
+      }
+      return newBids;
+    });
+    setProcessedAsks(newAsks);
+  }, [maxRows]);
+
+  // schedule RAF on prop change
+  useEffect(() => {
+    pendingBids.current = bids;
+    pendingAsks.current = asks;
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(flush);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [bids, asks, flush]);
+
+  const bestBid = useMemo(() => processedBids[0]?.price ?? 0, [processedBids]);
+  const bestAsk = useMemo(() => processedAsks[0]?.price ?? 0, [processedAsks]);
+  const listH = 180;
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        background: "rgba(10,10,14,1)",
+        display: "flex",
+        flexDirection: "column",
+        fontFamily: "IBM Plex Mono, monospace",
+      }}
+    >
+      <ColHeader />
+
+      {/* ASKS — reversed (lowest ask at bottom) */}
+      <div style={{ transform: "scaleY(-1)" }}>
+        <VirtualList
+          levels={[...processedAsks].reverse()}
+          side="ask"
+          height={listH}
+          priceDecimals={priceDecimals}
+          sizeDecimals={sizeDecimals}
+          flashKeys={flashKeys}
+        />
+      </div>
+
+      <SpreadBar bestBid={bestBid} bestAsk={bestAsk} priceDecimals={priceDecimals} />
+
+      {/* Last price */}
+      {lastPrice !== undefined && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "4px 8px",
+            fontFamily: "IBM Plex Mono, monospace",
+            fontSize: "14px",
+            fontWeight: "bold",
+            color: lastPrice >= bestAsk
+              ? "rgba(0,220,110,1)"
+              : lastPrice <= bestBid
+              ? "rgba(230,60,80,1)"
+              : "rgba(220,220,240,1)",
+          }}
+        >
+          {lastPrice.toFixed(priceDecimals)}
+        </div>
+      )}
+
+      {/* BIDS */}
+      <VirtualList
+        levels={processedBids}
+        side="bid"
+        height={listH}
+        priceDecimals={priceDecimals}
+        sizeDecimals={sizeDecimals}
+        flashKeys={flashKeys}
+      />
+    </div>
+  );
+});
 
 export default OrderBook;
