@@ -167,12 +167,12 @@ export const ProLock: React.FC<ProLockProps> = React.memo(({ isPro, onClickPro, 
   return (
     <div onClick={onClickPro} style={{ position: 'relative', height: '100%', width: '100%', overflow: 'hidden', cursor: 'pointer' }}>
       {/* Content blurred — FEELS real, makes trader want it */}
-      <div style={{ opacity: 0.15, filter: 'blur(2px)', height: '100%', pointerEvents: 'none', userSelect: 'none' as const }}>
+      <div style={{ opacity: 0.18, filter: 'blur(3px)', height: '100%', pointerEvents: 'none', userSelect: 'none' as const }}>
         {children}
       </div>
 
-      {/* Gradient vignette */}
-      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(14,17,26,0.0) 0%, rgba(14,17,26,0.65) 100%)', pointerEvents: 'none' }} />
+      {/* Gradient vignette — stronger so overlay is clear */}
+      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(5,7,15,0.4) 0%, rgba(5,7,15,0.75) 100%)', pointerEvents: 'none' }} />
 
       {/* CTA overlay */}
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '16px' }}>
@@ -183,32 +183,39 @@ export const ProLock: React.FC<ProLockProps> = React.memo(({ isPro, onClickPro, 
             fontFamily: '"IBM Plex Mono", monospace',
             marginBottom: '4px',
           }}>
-            <div style={{ fontSize: '22px', marginBottom: '6px' }}>{feat.icon}</div>
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.80)', letterSpacing: '-0.01em', marginBottom: '5px' }}>
+            <div style={{ fontSize: '24px', marginBottom: '8px' }}>{feat.icon}</div>
+            <div style={{ fontSize: '12px', fontWeight: 800, color: 'rgba(255,255,255,0.92)', letterSpacing: '-0.01em', marginBottom: '6px' }}>
               {label}
             </div>
-            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.35)', lineHeight: 1.5, maxWidth: '180px' }}>
+            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.45)', lineHeight: 1.6, maxWidth: '200px' }}>
               {feat.desc}
             </div>
           </div>
         )}
 
+        {/* Primary CTA — gold, high contrast */}
         <button style={{
-          padding: '8px 22px',
-          background: 'rgba(242,142,44,0.12)',
-          border: '1px solid rgba(242,142,44,0.40)',
-          borderRadius: '5px',
-          fontSize: '10px', fontWeight: 700,
-          color: 'rgba(242,142,44,1)',
-          letterSpacing: '0.10em',
+          padding: '10px 26px',
+          background: 'rgba(242,162,33,0.18)',
+          border: '1.5px solid rgba(242,162,33,0.70)',
+          borderRadius: '6px',
+          fontSize: '11px', fontWeight: 800,
+          color: 'rgba(242,162,33,1)',
+          letterSpacing: '0.12em',
           fontFamily: '"IBM Plex Mono", monospace',
           cursor: 'pointer',
-          boxShadow: '0 0 24px rgba(242,142,44,0.10)',
+          boxShadow: '0 0 32px rgba(242,162,33,0.18), inset 0 0 16px rgba(242,162,33,0.06)',
           transition: 'all 120ms',
         }}>
           UNLOCK PRO — $9
         </button>
-        <div style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.20)', letterSpacing: '0.08em', fontFamily: '"IBM Plex Mono", monospace' }}>
+
+        {/* Tap hint — makes it super clear this is interactive */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '9px', color: 'rgba(255,255,255,0.28)', letterSpacing: '0.08em', fontFamily: '"IBM Plex Mono", monospace' }}>
+          <span style={{ fontSize: 11 }}>👆</span> TAP ANYWHERE TO UNLOCK
+        </div>
+
+        <div style={{ fontSize: '8.5px', color: 'rgba(255,255,255,0.18)', letterSpacing: '0.08em', fontFamily: '"IBM Plex Mono", monospace' }}>
           one-time · lifetime · all features
         </div>
       </div>
