@@ -14,12 +14,28 @@ interface CoinLogoProps {
   size?:  number;
 }
 
+// Known working overrides — avoids 404 round-trips for common coins
+const KNOWN_LOGOS: Record<string, string> = {
+  BTC:  'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
+  ETH:  'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+  SOL:  'https://assets.coingecko.com/coins/images/4128/small/solana.png',
+  BNB:  'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png',
+  XRP:  'https://assets.coingecko.com/coins/images/44/small/xrp-symbol-white-128.png',
+  DOGE: 'https://assets.coingecko.com/coins/images/5/small/dogecoin.png',
+  AVAX: 'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
+  LINK: 'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png',
+  USDT: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
+  USDC: 'https://assets.coingecko.com/coins/images/6319/small/USD_Coin_icon.png',
+};
+
 function getSources(symbol: string): string[] {
   const s = symbol.toLowerCase();
-  return [
-    `https://assets.coincap.io/assets/icons/${s}@2x.png`,
-    `https://raw.githubusercontent.com/ErikThiart/cryptocurrency-icons/master/32/${s}.png`,
-  ];
+  const u = symbol.toUpperCase();
+  const sources: string[] = [];
+  if (KNOWN_LOGOS[u]) sources.push(KNOWN_LOGOS[u]);
+  sources.push(`https://assets.coincap.io/assets/icons/${s}@2x.png`);
+  sources.push(`https://cdn.jsdelivr.net/gh/ErikThiart/cryptocurrency-icons@master/32/${s}.png`);
+  return sources;
 }
 
 const FALLBACK_COLORS = [
