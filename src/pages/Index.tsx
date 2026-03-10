@@ -914,7 +914,7 @@ const Index: React.FC = () => {
         </div>
       </div>
     </ProLock>
-  ), [isPro, handleOpenProModal, bids, asks, midPrice]);
+  ), [isUnlocked, handleOpenProModal, startTrial, trialShown, bids, asks, midPrice]);
 
   // tradesPanel: only trades change — not bids/asks
   const tradesPanel = useMemo(() => (
@@ -931,7 +931,7 @@ const Index: React.FC = () => {
     <ProLock isPro={isUnlocked} onClickPro={handleOpenProModal} onStartTrial={startTrial} trialShown={trialShown} label="LIQUIDATION FEED">
       <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />
     </ProLock>
-  ), [isPro, handleOpenProModal, liqEvents, liqStats, liqStatus]);
+  ), [isUnlocked, handleOpenProModal, startTrial, trialShown, liqEvents, liqStats, liqStatus]);
 
   // marketDataPanel: ticker + symbolInfo only
   const marketDataPanel = useMemo(() => (
@@ -940,7 +940,7 @@ const Index: React.FC = () => {
         <MarketData ticker={ticker} symbolInfo={symbolInfo} />
       </div>
     </ProLock>
-  ), [isPro, handleOpenProModal, ticker, symbolInfo]);
+  ), [isUnlocked, handleOpenProModal, startTrial, trialShown, ticker, symbolInfo]);
 
   return (
     <div
