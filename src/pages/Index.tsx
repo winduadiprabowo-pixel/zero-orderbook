@@ -150,11 +150,23 @@ const TABLET_BOTTOM_TABS: { id: TabletBottomTab; label: string }[] = [
 
 // ── Precision options ─────────────────────────────────────────────────────────
 
-function getPrecisionOptions(priceDec: number): Precision[] {
+function getPrecisionOptions(priceDec: number, lastPrice?: number): Precision[] {
+  // Use actual last price if available — more accurate than priceDec alone
+  const price = lastPrice ?? 0;
+
+  if (price >= 10_000) return ['100', '10', '1', '0.1', '0.01'];      // BTC ~70k
+  if (price >= 1_000)  return ['10',  '1',  '0.1', '0.01', '0.001']; // ETH ~3k
+  if (price >= 100)    return ['1',   '0.1', '0.01', '0.001', '0.0001']; // BNB/SOL ~150-600
+  if (price >= 10)     return ['0.1', '0.01', '0.001', '0.0001'];     // LINK/AVAX
+  if (price >= 1)      return ['0.01', '0.001', '0.0001', '0.00001']; // XRP/DOGE ~1
+  if (price >= 0.1)    return ['0.001', '0.0001', '0.00001'];         // ~0.1-1
+  if (price >= 0.01)   return ['0.0001', '0.00001', '0.000001'];
+  if (price >= 0.001)  return ['0.00001', '0.000001', '0.0000001' as Precision];
+
+  // fallback by priceDec
   if (priceDec >= 7) return ['0.00000001', '0.0000001', '0.000001'];
   if (priceDec >= 5) return ['0.000001',   '0.00001',   '0.0001'  ];
   if (priceDec >= 3) return ['0.001',       '0.0001',    '0.00001' ];
-  if (priceDec >= 1) return ['0.1',          '0.01',      '0.001'  ];
   return ['0.1', '0.01', '0.001'];
 }
 
@@ -773,7 +785,7 @@ const Index: React.FC = () => {
     return symbolInfo.priceDec ?? 2;
   }, [ticker?.lastPrice, symbolInfo.priceDec]);
 
-  const precisionOptions = useMemo(() => getPrecisionOptions(activePriceDec), [activePriceDec]);
+  const precisionOptions = useMemo(() => getPrecisionOptions(activePriceDec, ticker?.lastPrice), [activePriceDec, ticker?.lastPrice]);
 
   const overallStatus: ConnectionStatus = useMemo(() => {
     if (obStatus === 'connected' && tickerStatus === 'connected') return 'connected';
@@ -805,7 +817,7 @@ const Index: React.FC = () => {
       setWsSymbol(sym);
       const found = pairs.find((p) => p.symbol === sym);
       if (found) {
-        const opts = getPrecisionOptions(found.priceDec);
+        const opts = getPrecisionOptions(found.priceDec, ticker?.lastPrice);
         setPrecision(opts[1] ?? '0.01');
       }
       try { localStorage.setItem('zero_symbol', sym); } catch {}
