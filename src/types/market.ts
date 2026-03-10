@@ -157,4 +157,4 @@ export const SYMBOLS = PINNED_SYMBOLS;
 // ─── Interval / Precision ────────────────────────────────────────────────────
 
 export type Interval  = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
-export type Precision = '0.1' | '0.01' | '0.001' | '0.0001' | '0.00001' | '0.000001' | '0.00000001';
+export type Precision = '100' | '10' | '1' | '0.1' | '0.01' | '0.001' | '0.0001' | '0.00001' | '0.000001' | '0.00000001';
