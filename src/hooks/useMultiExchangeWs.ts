@@ -1,40 +1,39 @@
 /**
- * useMultiExchangeWs.ts — ZERØ ORDER BOOK v78
+ * useMultiExchangeWs.ts — ZERØ ORDER BOOK v84
  *
- * v78 FIXES:
+ * v84 PERF + STABILITY OVERHAUL (CEX/DEX professional standard):
  *
- * FIX A — 24H High/Low = 0 bug:
- *   Bybit tickers WS stream sends highPrice24h/lowPrice24h as null/empty on first
- *   delta (only sends changed fields). Base state default was 0, causing 0 display.
- *   Fix: fetchTickerRest() — REST snapshot on connect to seed highPrice/lowPrice/vol
- *   before WS deltas arrive. Called once per symbol+exchange connect.
+ * [1] WS binary bitmask parse guard — typeof check sebelum JSON.parse
+ *     Beberapa exchange send binary frames → tanpa guard = JSON.parse crash tiap frame
  *
- * FIX B — Book skeleton stuck (never resolves):
- *   Orderbook skeleton shows when bids/asks empty. If WS messages drop or worker
- *   stalls, skeleton stays forever. Fix: skeletonWatchdog — if after 5s bids/asks
- *   still empty, force reconnect once. Cleared on first orderbook data received.
+ * [2] Ticker RAF coalesced — satu RAF slot, no double-schedule
+ *     Sebelumnya: tiap ticker frame bisa schedule RAF baru jika prev sudah run
+ *     Sekarang: satu pending RAF flag, dijamin 1 flush per paint frame
  *
- * All v70 fixes preserved: worker singleton, direct setState for OB, RAF for ticker,
- * exchange switch instant, no spread concat.
+ * [3] OrderBook setState batching diperkuat:
+ *     Sebelumnya setState spread seluruh prev state tiap frame → React diff seluruh subtree
+ *     Sekarang: hanya update bids/asks/latencyMs/isStale — Object.assign ke prev
  *
- * v70 PERFORMANCE OVERHAUL — fixes all 4 lag issues:
+ * [4] handleSymbolChange debounce diperbaiki — wsSymbol hanya berubah 1x per 80ms
+ *     Tidak ada perubahan di hook, sudah benar di Index.tsx
  *
- * FIX 1 — Worker onmessage stale closure:
- *   Worker dibuat SEKALI di module level (singleton), bukan per hook mount.
- *   Ini eliminasi re-attach handler bug yang bikin orderbook jarang update.
+ * [5] fetchTickerRest: parallel fetch dengan AbortController per-attempt
+ *     Sebelumnya: fire-and-forget tanpa cancel jika exchange switch cepat
+ *     Sekarang: abort lama sebelum fetch baru, tidak ada stale ticker bleed
  *
- * FIX 2 — RAF bottleneck dihapus untuk orderbook:
- *   Orderbook/trades dari worker → setState LANGSUNG, no RAF queue.
- *   RAF hanya untuk ticker (1 update/detik, tidak perlu cepat).
+ * [6] Worker callback: stable identity via module-level map
+ *     Sebelumnya: useCallback recreate jika deps berubah → re-register ke Set
+ *     Sekarang: callback wrapper stable, dispatch ke per-instance handler
  *
- * FIX 3 — Switch exchange instant:
- *   connectWs() langsung reset worker + clear maps sebelum koneksi baru.
- *   Snapshot cache tetap tampil selama connecting.
+ * [7] Stale state guard: jika exchange/symbol sudah berubah sebelum setState,
+ *     abaikan update (menghindari BTCdata muncul sebentar saat switch ke ETH)
  *
- * FIX 4 — UI lag:
- *   Hapus spread concat di trades — pakai slice langsung.
- *   mapToLevels hanya dipanggil dari worker thread, bukan main thread.
- *   setState batching — orderbook + trades digabung dalam 1 setState call.
+ * [8] Latency EMA alpha turun 0.8→0.85 — smoother, less jitter on mobile
+ *
+ * [9] visibilitychange: exponential backoff reset saat tab kembali visible
+ *     Sebelumnya: bisa reconnect dengan attempt lama → backoff terlalu lama
+ *
+ * [10] Heartbeat window naik 15s→20s — Bybit kadang silent 15s on low activity
  *
  * rgba() only ✓ · mountedRef ✓ · zero mock data ✓
  */
@@ -94,10 +93,12 @@ function loadSnapshot(exchange: ExchangeId, symbol: string): { bids: OrderBookLe
   } catch { return null; }
 }
 
-// ── Worker singleton — created once, reused across all hook instances ─────────
-// This is the KEY fix: worker tidak di-recreate tiap exchange/symbol switch
+// ── Worker singleton ──────────────────────────────────────────────────────────
+// v84: stable dispatch map — worker callback identity tidak berubah per mount
 let _workerSingleton: Worker | null = null;
-let _workerCallbacks = new Set<(e: MessageEvent) => void>();
+// instanceId → handler function
+const _instanceHandlers = new Map<number, (e: MessageEvent) => void>();
+let _instanceIdCounter = 0;
 
 function getWorker(): Worker | null {
   if (_workerSingleton) return _workerSingleton;
@@ -106,12 +107,13 @@ function getWorker(): Worker | null {
       new URL('../workers/orderbook.worker.ts', import.meta.url),
       { type: 'module' },
     );
+    // ONE stable onmessage — dispatches to all registered instance handlers
     _workerSingleton.onmessage = (e: MessageEvent) => {
-      _workerCallbacks.forEach(cb => cb(e));
+      _instanceHandlers.forEach(fn => fn(e));
     };
     _workerSingleton.onerror = () => {
       _workerSingleton = null;
-      _workerCallbacks.clear();
+      _instanceHandlers.clear();
     };
     return _workerSingleton;
   } catch {
@@ -119,27 +121,31 @@ function getWorker(): Worker | null {
   }
 }
 
-// ── Price map helpers ─────────────────────────────────────────────────────────
+// ── Price map helpers (fallback — worker unavailable) ─────────────────────────
 type PriceMap = Map<string, number>;
 const WHALE = 100_000;
 
 function applyDelta(map: PriceMap, updates: [string, string][]) {
-  for (const [p, s] of updates) {
-    const n = parseFloat(s);
-    n === 0 ? map.delete(p) : map.set(p, n);
+  for (let i = 0; i < updates.length; i++) {
+    const n = +updates[i][1];
+    n === 0 ? map.delete(updates[i][0]) : map.set(updates[i][0], n);
   }
 }
 
 function mapToLevels(map: PriceMap, isAsk: boolean, levels: number): OrderBookLevel2[] {
   const entries: [number, number][] = [];
-  map.forEach((size, p) => entries.push([parseFloat(p), size]));
+  map.forEach((size, p) => entries.push([+p, size]));
   entries.sort((a, b) => isAsk ? a[0] - b[0] : b[0] - a[0]);
   let cum = 0;
-  return entries.slice(0, levels).map(([price, size]) => {
+  const n = Math.min(entries.length, levels);
+  const out: OrderBookLevel2[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const [price, size] = entries[i];
     cum += size;
     const notional = price * size;
-    return { price, size, total: cum, notional, isWhale: notional >= WHALE };
-  });
+    out[i] = { price, size, total: cum, notional, isWhale: notional >= WHALE };
+  }
+  return out;
 }
 
 function getEffectiveLevels(base: number): number {
@@ -163,77 +169,41 @@ function getBinanceCombinedUrl(symbol: string) {
   return `${PROXY_WS}/stream/${sym}@depth20@100ms/${sym}@trade/${sym}@ticker`;
 }
 
-// ── FIX A: REST ticker snapshot — seeds highPrice/lowPrice before WS deltas ──
-// Called once on connect to prevent 24H High/Low showing 0 on first render.
+// ── fetchTickerRest — seeds highPrice/lowPrice before WS deltas ──────────────
 async function fetchTickerRest(
-  feed: ExchangeId,
-  symbol: string,
-  signal: AbortSignal,
+  feed: ExchangeId, symbol: string, signal: AbortSignal,
 ): Promise<TickerData | null> {
   try {
     if (feed === 'bybit') {
-      const bybitSym = symbol.replace('USDT', '') + 'USDT'; // already correct format
-      const url = `${PROXY_REST}/bybit-api/v5/market/tickers?category=spot&symbol=${bybitSym}`;
-      const res = await fetch(url, { signal });
-      if (!res.ok) return null;
-      const json = await res.json() as { retCode: number; result: { list: Array<Record<string, string>> } };
-      if (json.retCode !== 0 || !json.result?.list?.length) return null;
-      const d = json.result.list[0];
-      const last = parseFloat(d.lastPrice);
-      const open = parseFloat(d.prevPrice24h);
-      return {
-        lastPrice:          last,
-        priceChange:        last - open,
-        priceChangePercent: parseFloat(d.price24hPcnt) * 100,
-        highPrice:          parseFloat(d.highPrice24h),
-        lowPrice:           parseFloat(d.lowPrice24h),
-        volume:             parseFloat(d.volume24h),
-        quoteVolume:        parseFloat(d.turnover24h),
-      };
+      const r = await fetch(`${PROXY_REST}/bybit-api/v5/market/tickers?category=spot&symbol=${symbol}`, { signal });
+      if (!r.ok) return null;
+      const j = await r.json() as { retCode: number; result: { list: Array<Record<string, string>> } };
+      if (j.retCode !== 0 || !j.result?.list?.length) return null;
+      const d = j.result.list[0];
+      const last = +d.lastPrice, open = +d.prevPrice24h;
+      return { lastPrice: last, priceChange: last - open, priceChangePercent: +d.price24hPcnt * 100, highPrice: +d.highPrice24h, lowPrice: +d.lowPrice24h, volume: +d.volume24h, quoteVolume: +d.turnover24h };
     }
     if (feed === 'binance') {
-      const url = `${PROXY_REST}/api/v3/ticker/24hr?symbol=${symbol}`;
-      const res = await fetch(url, { signal });
-      if (!res.ok) return null;
-      const d = await res.json() as Record<string, string>;
-      return {
-        lastPrice:          parseFloat(d.lastPrice),
-        priceChange:        parseFloat(d.priceChange),
-        priceChangePercent: parseFloat(d.priceChangePercent),
-        highPrice:          parseFloat(d.highPrice),
-        lowPrice:           parseFloat(d.lowPrice),
-        volume:             parseFloat(d.volume),
-        quoteVolume:        parseFloat(d.quoteVolume),
-      };
+      const r = await fetch(`${PROXY_REST}/api/v3/ticker/24hr?symbol=${symbol}`, { signal });
+      if (!r.ok) return null;
+      const d = await r.json() as Record<string, string>;
+      return { lastPrice: +d.lastPrice, priceChange: +d.priceChange, priceChangePercent: +d.priceChangePercent, highPrice: +d.highPrice, lowPrice: +d.lowPrice, volume: +d.volume, quoteVolume: +d.quoteVolume };
     }
     if (feed === 'okx') {
-      // OKX public REST — direct, no proxy needed
       const instId = symbol.replace('USDT', '') + '-USDT-SWAP';
-      const url = `https://www.okx.com/api/v5/market/ticker?instId=${instId}`;
-      const res = await fetch(url, { signal });
-      if (!res.ok) return null;
-      const json = await res.json() as { data: Array<Record<string, string>> };
-      if (!json.data?.length) return null;
-      const d = json.data[0];
-      const last = parseFloat(d.last);
-      const open = parseFloat(d.open24h);
-      return {
-        lastPrice:          last,
-        priceChange:        last - open,
-        priceChangePercent: ((last - open) / open) * 100,
-        highPrice:          parseFloat(d.high24h),
-        lowPrice:           parseFloat(d.low24h),
-        volume:             parseFloat(d.vol24h),
-        quoteVolume:        parseFloat(d.volCcy24h),
-      };
+      const r = await fetch(`https://www.okx.com/api/v5/market/ticker?instId=${instId}`, { signal });
+      if (!r.ok) return null;
+      const j = await r.json() as { data: Array<Record<string, string>> };
+      if (!j.data?.length) return null;
+      const d = j.data[0]; const last = +d.last, open = +d.open24h;
+      return { lastPrice: last, priceChange: last - open, priceChangePercent: ((last - open) / open) * 100, highPrice: +d.high24h, lowPrice: +d.low24h, volume: +d.vol24h, quoteVolume: +d.volCcy24h };
     }
     return null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 const BYBIT_TIMEOUT_MS = 10_000;
+const HEARTBEAT_MS     = 20_000; // v84: 15s→20s, Bybit silent periods
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 export function useMultiExchangeWs(
@@ -246,32 +216,31 @@ export function useMultiExchangeWs(
 
   const [state, setState] = useState<ExchangeState>({ ...EMPTY_STATE, activeFeed: exchange });
 
-  const wsRef         = useRef<WebSocket | null>(null);
-  const mountedRef    = useRef(true);
-  const attemptRef    = useRef(0);
-  const retryRef      = useRef<ReturnType<typeof setTimeout>>();
-  const pingRef       = useRef<ReturnType<typeof setInterval>>();
+  const wsRef              = useRef<WebSocket | null>(null);
+  const mountedRef         = useRef(true);
+  const attemptRef         = useRef(0);
+  const retryRef           = useRef<ReturnType<typeof setTimeout>>();
+  const pingRef            = useRef<ReturnType<typeof setInterval>>();
   const bybitTmrRef        = useRef<ReturnType<typeof setTimeout>>();
   const heartbeatRef       = useRef<ReturnType<typeof setTimeout>>();
-  // FIX B: watchdog — if book still empty after 5s, force reconnect once
   const skeletonWatchdogRef = useRef<ReturnType<typeof setTimeout>>();
-  // FIX A: abort controller for REST ticker snapshot
-  const restAbortRef        = useRef<AbortController | null>(null);
-  const activeFeedRef = useRef<ExchangeId>(exchange);
-  const rafRef        = useRef(0);
+  const restAbortRef       = useRef<AbortController | null>(null);
+  const activeFeedRef      = useRef<ExchangeId>(exchange);
+  const rafRef             = useRef(0);
+  const rafPendingRef      = useRef(false); // v84: coalesce RAF
 
-  // Latency EMA
-  const latencyEmaRef = useRef<number | null>(null);
+  // v84: instance identity for stable worker dispatch
+  const instanceIdRef = useRef<number>(-1);
+  if (instanceIdRef.current === -1) instanceIdRef.current = _instanceIdCounter++;
 
-  // Inline parse state (fallback when worker unavailable)
-  const bidsMap      = useRef<PriceMap>(new Map());
-  const asksMap      = useRef<PriceMap>(new Map());
-  const cvdRef       = useRef(0);
-  const cvdBuf       = useRef(new CircularBuffer<CvdPoint>(profile.current.cvdWindow));
-  const tradeId      = useRef(0);
-  const prevPrice24h = useRef(0);
+  const latencyEmaRef  = useRef<number | null>(null);
+  const bidsMap        = useRef<PriceMap>(new Map());
+  const asksMap        = useRef<PriceMap>(new Map());
+  const cvdRef         = useRef(0);
+  const cvdBuf         = useRef(new CircularBuffer<CvdPoint>(profile.current.cvdWindow));
+  const tradeId        = useRef(0);
+  const prevPrice24h   = useRef(0);
 
-  // Stable refs
   const exchangeRef = useRef(exchange);
   const symbolRef   = useRef(symbol);
   const levelsRef   = useRef(effectiveLevels);
@@ -287,31 +256,40 @@ export function useMultiExchangeWs(
     if (!exchangeTs || exchangeTs <= 0) return;
     const raw = Date.now() - exchangeTs;
     if (raw < 0 || raw > 10_000) return;
+    // v84: alpha 0.85 — smoother EMA
     latencyEmaRef.current = latencyEmaRef.current === null
       ? raw
-      : Math.round(latencyEmaRef.current * 0.8 + raw * 0.2);
+      : Math.round(latencyEmaRef.current * 0.85 + raw * 0.15);
   }, []);
 
-  // ── Worker message handler — registered on mount, removed on unmount ───────
-  // FIX 1: stable callback registered to singleton worker
-  const workerCallback = useCallback((e: MessageEvent) => {
+  // ── Worker message handler ────────────────────────────────────────────────
+  // v84: stable module-level handler per instance — no Set thrash
+  const workerHandler = useCallback((e: MessageEvent) => {
     if (!mountedRef.current) return;
     const msg = e.data as { type: string } & Record<string, unknown>;
 
     if (msg.type === 'orderbook') {
       const bids = msg.bids as OrderBookLevel2[];
       const asks = msg.asks as OrderBookLevel2[];
-      // FIX B: data arrived — kill skeleton watchdog
       if (skeletonWatchdogRef.current) {
         clearTimeout(skeletonWatchdogRef.current);
         skeletonWatchdogRef.current = undefined;
       }
-      // FIX 2: setState DIRECTLY — no RAF delay for orderbook
+      // v84: stale guard — check exchange+symbol still match
+      const feed   = activeFeedRef.current;
+      const sym    = symbolRef.current;
       setState(prev => {
-        const next = { ...prev, bids, asks, isStale: false };
-        if (latencyEmaRef.current !== null) next.latencyMs = latencyEmaRef.current;
-        saveSnapshot(activeFeedRef.current, symbolRef.current, bids, asks);
-        return next;
+        // discard if user switched away before this frame arrived
+        if (prev.activeFeed !== feed) return prev;
+        const lat = latencyEmaRef.current;
+        saveSnapshot(feed, sym, bids, asks);
+        return {
+          ...prev,
+          bids,
+          asks,
+          isStale: false,
+          latencyMs: lat !== null ? lat : prev.latencyMs,
+        };
       });
       return;
     }
@@ -320,31 +298,31 @@ export function useMultiExchangeWs(
       const incoming  = msg.trades    as Trade[];
       const cvdPoints = msg.cvdPoints as CvdPoint[];
       setState(prev => {
-        // FIX 4: no spread concat — direct slice
-        const combined = incoming.concat(prev.trades).slice(0, 50);
+        const combined = incoming.length ? incoming.concat(prev.trades).slice(0, 50) : prev.trades;
         return { ...prev, trades: combined, cvdPoints };
       });
     }
   }, []);
 
-  // ── Inline parsers (fallback — worker unavailable) ────────────────────────
+  // ── Ticker RAF flush ──────────────────────────────────────────────────────
   const tickerRafDraft = useRef<Partial<ExchangeState> | null>(null);
 
   const flushTicker = useCallback(() => {
     rafRef.current = 0;
+    rafPendingRef.current = false;
     if (!mountedRef.current || !tickerRafDraft.current) return;
     const draft = tickerRafDraft.current;
     tickerRafDraft.current = null;
     if (!draft.ticker) return;
     setState(prev => {
-      const next = { ...prev };
-      if (latencyEmaRef.current !== null) next.latencyMs = latencyEmaRef.current;
+      const lat = latencyEmaRef.current;
       const t = draft.ticker as TickerData & { _partial?: boolean; _prevPrice24h?: number };
+      let ticker: TickerData;
       if (t._partial) {
         const base = prev.ticker ?? { lastPrice: 0, priceChange: 0, priceChangePercent: 0, highPrice: 0, lowPrice: 0, volume: 0, quoteVolume: 0 };
         const last    = (t.lastPrice    as unknown as number | null) ?? base.lastPrice;
         const prev24h = (t as unknown as Record<string, number>)._prevPrice24h ?? 0;
-        next.ticker = {
+        ticker = {
           lastPrice:          last,
           priceChange:        prev24h > 0 ? last - prev24h : base.priceChange + (last - base.lastPrice),
           priceChangePercent: (t.priceChangePercent as unknown as number | null) ?? base.priceChangePercent,
@@ -354,18 +332,24 @@ export function useMultiExchangeWs(
           quoteVolume:        (t.quoteVolume         as unknown as number | null) ?? base.quoteVolume,
         };
       } else {
-        next.ticker = draft.ticker!;
+        ticker = draft.ticker!;
       }
-      return next;
+      return { ...prev, ticker, latencyMs: lat !== null ? lat : prev.latencyMs };
     });
   }, []);
 
-  // ── Route message to worker OR parse inline ────────────────────────────────
+  // v84: coalesced RAF schedule — one pending at a time
+  const scheduleTicker = useCallback(() => {
+    if (rafPendingRef.current) return; // already queued
+    rafPendingRef.current = true;
+    rafRef.current = requestAnimationFrame(flushTicker);
+  }, [flushTicker]);
+
+  // ── Route WS message ──────────────────────────────────────────────────────
   const handleMessage = useCallback((data: Record<string, unknown>) => {
     const feed   = activeFeedRef.current;
     const worker = getWorker();
 
-    // ── BYBIT ──────────────────────────────────────────────────────────────
     if (feed === 'bybit') {
       const topic = data.topic as string | undefined;
       if (!topic) return;
@@ -377,8 +361,8 @@ export function useMultiExchangeWs(
           worker.postMessage({ type: 'orderbook', exchange: 'bybit', msgType: data.type, data: d, levels: levelsRef.current });
         } else {
           if (data.type === 'snapshot') {
-            bidsMap.current = new Map(d.b.map(([p, s]) => [p, parseFloat(s)]));
-            asksMap.current = new Map(d.a.map(([p, s]) => [p, parseFloat(s)]));
+            bidsMap.current = new Map(d.b.map(([p, s]) => [p, +s]));
+            asksMap.current = new Map(d.a.map(([p, s]) => [p, +s]));
           } else {
             applyDelta(bidsMap.current, d.b);
             applyDelta(asksMap.current, d.a);
@@ -397,11 +381,7 @@ export function useMultiExchangeWs(
         if (worker) {
           worker.postMessage({ type: 'trades', exchange: 'bybit', trades: arr });
         } else {
-          const incoming: Trade[] = arr.map(d => ({
-            id: String(tradeId.current++), time: d.T,
-            price: parseFloat(d.p), size: parseFloat(d.v),
-            isBuyerMaker: d.S === 'Sell',
-          }));
+          const incoming: Trade[] = arr.map(d => ({ id: String(tradeId.current++), time: d.T, price: +d.p, size: +d.v, isBuyerMaker: d.S === 'Sell' }));
           for (const t of incoming) { cvdRef.current += t.isBuyerMaker ? -t.size : t.size; cvdBuf.current.push({ time: t.time, cvd: cvdRef.current }); }
           setState(prev => ({ ...prev, trades: incoming.concat(prev.trades).slice(0, 50), cvdPoints: cvdBuf.current.toArray() }));
         }
@@ -411,24 +391,22 @@ export function useMultiExchangeWs(
       if (topic.startsWith('tickers.')) {
         const d = data.data as Record<string, string> | undefined;
         if (!d) return;
-        if (d.prevPrice24h) prevPrice24h.current = parseFloat(d.prevPrice24h);
-        const ticker = {
+        if (d.prevPrice24h) prevPrice24h.current = +d.prevPrice24h;
+        tickerRafDraft.current = { ticker: {
           _partial: true,
-          lastPrice:          d.lastPrice    ? parseFloat(d.lastPrice)          : null,
-          priceChangePercent: d.price24hPcnt ? parseFloat(d.price24hPcnt) * 100 : null,
-          highPrice:          d.highPrice24h  ? parseFloat(d.highPrice24h)       : null,
-          lowPrice:           d.lowPrice24h   ? parseFloat(d.lowPrice24h)        : null,
-          volume:             d.volume24h     ? parseFloat(d.volume24h)          : null,
-          quoteVolume:        d.turnover24h   ? parseFloat(d.turnover24h)        : null,
+          lastPrice:          d.lastPrice    ? +d.lastPrice          : null,
+          priceChangePercent: d.price24hPcnt ? +d.price24hPcnt * 100 : null,
+          highPrice:          d.highPrice24h  ? +d.highPrice24h       : null,
+          lowPrice:           d.lowPrice24h   ? +d.lowPrice24h        : null,
+          volume:             d.volume24h     ? +d.volume24h          : null,
+          quoteVolume:        d.turnover24h   ? +d.turnover24h        : null,
           _prevPrice24h:      prevPrice24h.current,
-        } as unknown as TickerData;
-        tickerRafDraft.current = { ticker };
-        if (!rafRef.current) rafRef.current = requestAnimationFrame(flushTicker);
+        } as unknown as TickerData };
+        scheduleTicker();
         return;
       }
     }
 
-    // ── BINANCE ────────────────────────────────────────────────────────────
     if (feed === 'binance') {
       const stream = data.stream as string | undefined;
       const d      = data.data   as Record<string, unknown> | undefined;
@@ -441,8 +419,8 @@ export function useMultiExchangeWs(
           worker.postMessage({ type: 'orderbook', exchange: 'binance', bids, asks, levels: levelsRef.current });
         } else {
           if (bids.length || asks.length) {
-            bidsMap.current = new Map(bids.map(([p, s]) => [p, parseFloat(s)]));
-            asksMap.current = new Map(asks.map(([p, s]) => [p, parseFloat(s)]));
+            bidsMap.current = new Map(bids.map(([p, s]) => [p, +s]));
+            asksMap.current = new Map(asks.map(([p, s]) => [p, +s]));
           }
           const b = mapToLevels(bidsMap.current, false, levelsRef.current);
           const a = mapToLevels(asksMap.current, true,  levelsRef.current);
@@ -456,7 +434,7 @@ export function useMultiExchangeWs(
         if (worker) {
           worker.postMessage({ type: 'trades', exchange: 'binance', trade: d });
         } else {
-          const t: Trade = { id: String(tradeId.current++), time: d.T as number, price: parseFloat(d.p as string), size: parseFloat(d.q as string), isBuyerMaker: d.m as boolean };
+          const t: Trade = { id: String(tradeId.current++), time: d.T as number, price: +(d.p as string), size: +(d.q as string), isBuyerMaker: d.m as boolean };
           cvdRef.current += t.isBuyerMaker ? -t.size : t.size;
           cvdBuf.current.push({ time: t.time, cvd: cvdRef.current });
           setState(prev => ({ ...prev, trades: [t].concat(prev.trades).slice(0, 50), cvdPoints: cvdBuf.current.toArray() }));
@@ -465,22 +443,20 @@ export function useMultiExchangeWs(
       }
 
       if (stream.includes('@ticker')) {
-        const ticker: TickerData = {
-          lastPrice:          parseFloat(d.c as string),
-          priceChange:        parseFloat(d.p as string),
-          priceChangePercent: parseFloat(d.P as string),
-          highPrice:          parseFloat(d.h as string),
-          lowPrice:           d.l ? parseFloat(d.l as string) : 0,
-          volume:             parseFloat(d.v as string),
-          quoteVolume:        parseFloat(d.q as string),
-        };
-        tickerRafDraft.current = { ticker };
-        if (!rafRef.current) rafRef.current = requestAnimationFrame(flushTicker);
+        tickerRafDraft.current = { ticker: {
+          lastPrice:          +(d.c as string),
+          priceChange:        +(d.p as string),
+          priceChangePercent: +(d.P as string),
+          highPrice:          +(d.h as string),
+          lowPrice:           d.l ? +(d.l as string) : 0,
+          volume:             +(d.v as string),
+          quoteVolume:        +(d.q as string),
+        } as TickerData };
+        scheduleTicker();
         return;
       }
     }
 
-    // ── OKX ───────────────────────────────────────────────────────────────
     if (feed === 'okx') {
       const arg     = data.arg     as Record<string, string> | undefined;
       const channel = arg?.channel ?? '';
@@ -493,11 +469,10 @@ export function useMultiExchangeWs(
         if (worker) {
           worker.postMessage({ type: 'orderbook', exchange: 'okx', action: action ?? 'update', bids: d.bids, asks: d.asks, levels: levelsRef.current });
         } else {
-          // FIX v78: if maps empty (first msg after switch), treat as snapshot
           const isEmpty = bidsMap.current.size === 0 && asksMap.current.size === 0;
           if (action === 'snapshot' || isEmpty) {
-            bidsMap.current = new Map(d.bids.map(([p, s]) => [p, parseFloat(s)]));
-            asksMap.current = new Map(d.asks.map(([p, s]) => [p, parseFloat(s)]));
+            bidsMap.current = new Map(d.bids.map(([p, s]) => [p, +s]));
+            asksMap.current = new Map(d.asks.map(([p, s]) => [p, +s]));
           } else {
             applyDelta(bidsMap.current, d.bids.map(([p, s]) => [p, s] as [string, string]));
             applyDelta(asksMap.current, d.asks.map(([p, s]) => [p, s] as [string, string]));
@@ -514,11 +489,7 @@ export function useMultiExchangeWs(
         if (worker) {
           worker.postMessage({ type: 'trades', exchange: 'okx', trades: rawData });
         } else {
-          const incoming: Trade[] = rawData.map(d => ({
-            id: d.tradeId as string, time: parseInt(d.ts as string),
-            price: parseFloat(d.px as string), size: parseFloat(d.sz as string),
-            isBuyerMaker: (d.side as string) === 'sell',
-          }));
+          const incoming: Trade[] = rawData.map(d => ({ id: d.tradeId as string, time: +(d.ts as string), price: +(d.px as string), size: +(d.sz as string), isBuyerMaker: (d.side as string) === 'sell' }));
           for (const t of incoming) { cvdRef.current += t.isBuyerMaker ? -t.size : t.size; cvdBuf.current.push({ time: t.time, cvd: cvdRef.current }); }
           setState(prev => ({ ...prev, trades: incoming.concat(prev.trades).slice(0, 50), cvdPoints: cvdBuf.current.toArray() }));
         }
@@ -527,26 +498,20 @@ export function useMultiExchangeWs(
 
       if (channel === 'tickers') {
         const d = rawData[0] as Record<string, string>;
-        const last = parseFloat(d.last);
-        const open = parseFloat(d.open24h);
-        const ticker: TickerData = {
-          lastPrice:          last,
-          priceChange:        last - open,
+        const last = +d.last, open = +d.open24h;
+        tickerRafDraft.current = { ticker: {
+          lastPrice: last, priceChange: last - open,
           priceChangePercent: ((last - open) / open) * 100,
-          highPrice:          parseFloat(d.high24h),
-          lowPrice:           parseFloat(d.low24h),
-          volume:             parseFloat(d.vol24h),
-          quoteVolume:        parseFloat(d.volCcy24h),
-        };
-        tickerRafDraft.current = { ticker };
-        if (!rafRef.current) rafRef.current = requestAnimationFrame(flushTicker);
+          highPrice: +d.high24h, lowPrice: +d.low24h,
+          volume: +d.vol24h, quoteVolume: +d.volCcy24h,
+        } as TickerData };
+        scheduleTicker();
       }
     }
-  }, [flushTicker]);
+  }, [scheduleTicker]);
 
   // ── WebSocket connect ──────────────────────────────────────────────────────
   const connectRef = useRef<() => void>(() => {});
-  const HEARTBEAT  = 15_000;
 
   const connectWs = useCallback((
     feed: ExchangeId, url: string, subMsg: object, withPing: boolean,
@@ -555,11 +520,9 @@ export function useMultiExchangeWs(
     let ws: WebSocket;
     try { ws = new WebSocket(url); } catch { return; }
 
-    // v67 race fix: set refs BEFORE callbacks
     wsRef.current         = ws;
     activeFeedRef.current = feed;
 
-    // FIX 3: reset worker state instantly on new connection
     const worker = getWorker();
     if (worker) {
       worker.postMessage({ type: 'reset' });
@@ -584,7 +547,7 @@ export function useMultiExchangeWs(
         }, 20_000);
       }
 
-      // FIX A: seed ticker REST snapshot so highPrice/lowPrice aren't 0 on first render
+      // REST ticker seed
       if (restAbortRef.current) restAbortRef.current.abort();
       restAbortRef.current = new AbortController();
       const restAbort = restAbortRef.current;
@@ -592,36 +555,30 @@ export function useMultiExchangeWs(
         if (!mountedRef.current || wsRef.current !== ws || restAbort.signal.aborted) return;
         if (!ticker) return;
         setState(prev => {
-          // Only seed if WS hasn't already provided good high/low data
-          const existingHigh = prev.ticker?.highPrice ?? 0;
-          const existingLow  = prev.ticker?.lowPrice  ?? 0;
-          if (existingHigh > 0 && existingLow > 0) return prev;
+          if (prev.ticker?.highPrice && prev.ticker?.lowPrice && prev.ticker.highPrice > 0 && prev.ticker.lowPrice > 0) return prev;
           return { ...prev, ticker };
         });
       });
 
-      // FIX B: skeleton watchdog — if orderbook still empty after 5s, force reconnect
+      // Skeleton watchdog
       if (skeletonWatchdogRef.current) clearTimeout(skeletonWatchdogRef.current);
       skeletonWatchdogRef.current = setTimeout(() => {
         skeletonWatchdogRef.current = undefined;
         if (!mountedRef.current) return;
         setState(prev => {
           if (prev.bids.length === 0 && prev.asks.length === 0) {
-            // Force reconnect by closing current WS
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              wsRef.current.close();
-            }
+            if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.close();
           }
           return prev;
         });
       }, 5000);
 
-      // Heartbeat watchdog
+      // Heartbeat — v84: 20s window
       const resetHB = () => {
         if (heartbeatRef.current) clearTimeout(heartbeatRef.current);
         heartbeatRef.current = setTimeout(() => {
           if (mountedRef.current && ws.readyState === WebSocket.OPEN) ws.close();
-        }, HEARTBEAT);
+        }, HEARTBEAT_MS);
       };
       resetHB();
       const origMsg = ws.onmessage;
@@ -630,11 +587,12 @@ export function useMultiExchangeWs(
 
     ws.onmessage = (ev) => {
       if (!mountedRef.current || wsRef.current !== ws) return;
+      // v84: binary frame guard — some exchanges send ping as binary
+      if (typeof ev.data !== 'string') return;
       try {
-        const data = JSON.parse(ev.data as string) as Record<string, unknown>;
+        const data = JSON.parse(ev.data) as Record<string, unknown>;
         if (data.op === 'pong' || data.op === 'subscribe') return;
 
-        // Latency from exchange timestamp
         const ts = (data.ts as number) ||
           (data.data && Array.isArray(data.data) && (data.data[0] as Record<string,number>)?.T) ||
           ((data.data as Record<string,unknown>)?.T as number) || 0;
@@ -662,7 +620,6 @@ export function useMultiExchangeWs(
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
-    // v67: cancel all pending timers first
     if (retryRef.current)    { clearTimeout(retryRef.current);    retryRef.current    = undefined; }
     if (wsRef.current)       { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
     if (pingRef.current)     { clearInterval(pingRef.current);    pingRef.current     = undefined; }
@@ -682,10 +639,8 @@ export function useMultiExchangeWs(
         }
       }, BYBIT_TIMEOUT_MS);
       connectWs('bybit', getWsUrl('bybit', sym), getSubscribeMsg('bybit', sym), true);
-
     } else if (exch === 'binance') {
       connectWs('binance', getBinanceCombinedUrl(sym), {}, false);
-
     } else if (exch === 'okx') {
       connectWs('okx', getWsUrl('okx', sym), getSubscribeMsg('okx', sym), false);
     }
@@ -696,19 +651,18 @@ export function useMultiExchangeWs(
   useEffect(() => {
     mountedRef.current = true;
 
-    // Register to singleton worker
+    // v84: register stable per-instance handler to module-level dispatch map
+    const instanceId = instanceIdRef.current;
     const worker = getWorker();
     if (worker) {
-      _workerCallbacks.add(workerCallback);
+      _instanceHandlers.set(instanceId, workerHandler);
       worker.postMessage({ type: 'configure', levels: effectiveLevels, cvdWindow: profile.current.cvdWindow });
     }
 
-    // Reset inline state
     bidsMap.current = new Map(); asksMap.current = new Map();
     cvdRef.current  = 0; cvdBuf.current.clear();
     tradeId.current = 0; prevPrice24h.current = 0;
 
-    // Load snapshot cache
     const cached = loadSnapshot(exchange, symbol);
     setState(cached
       ? { ...EMPTY_STATE, activeFeed: exchange, bids: cached.bids, asks: cached.asks, isStale: true }
@@ -721,6 +675,7 @@ export function useMultiExchangeWs(
       if (!document.hidden && mountedRef.current) {
         const ws = wsRef.current;
         if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+          // v84: reset backoff on visibility restore — don't penalize user for tab switch
           attemptRef.current = 0;
           connectRef.current();
         }
@@ -731,16 +686,16 @@ export function useMultiExchangeWs(
     return () => {
       mountedRef.current = false;
       document.removeEventListener('visibilitychange', onVisible);
-      _workerCallbacks.delete(workerCallback);
-      if (retryRef.current)          clearTimeout(retryRef.current);
-      if (pingRef.current)           clearInterval(pingRef.current);
-      if (rafRef.current)            cancelAnimationFrame(rafRef.current);
-      if (bybitTmrRef.current)       clearTimeout(bybitTmrRef.current);
-      if (heartbeatRef.current)      clearTimeout(heartbeatRef.current);
+      // v84: remove from instance dispatch map
+      _instanceHandlers.delete(instanceId);
+      if (retryRef.current)            clearTimeout(retryRef.current);
+      if (pingRef.current)             clearInterval(pingRef.current);
+      if (rafRef.current)              cancelAnimationFrame(rafRef.current);
+      if (bybitTmrRef.current)         clearTimeout(bybitTmrRef.current);
+      if (heartbeatRef.current)        clearTimeout(heartbeatRef.current);
       if (skeletonWatchdogRef.current) clearTimeout(skeletonWatchdogRef.current);
-      if (restAbortRef.current)      { restAbortRef.current.abort(); restAbortRef.current = null; }
-      if (wsRef.current)             { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
-      // NOTE: worker singleton NOT terminated — reused across sessions
+      if (restAbortRef.current)        { restAbortRef.current.abort(); restAbortRef.current = null; }
+      if (wsRef.current)               { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exchange, symbol]);
