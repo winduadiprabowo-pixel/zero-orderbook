@@ -472,7 +472,12 @@ const LightweightChart = memo(function LightweightChart({
   const activeDrawing = useRef<{ tool: DrawTool; p1: DrawPoint | null; p2: DrawPoint | null }>({ tool: 'none', p1: null, p2: null });
   const isDrawing     = useRef(false);
 
-  // ── chart init ───────────────────────────────────────────────────────────────
+  // ── chart init + buildMainSeries in ONE effect ───────────────────────────────
+  // FIX v83: Previously chart init and buildMainSeries were two separate useEffect([]).
+  // React does NOT guarantee execution order between sibling effects with same deps [].
+  // buildMainSeries reads chartRef.current which may be null if the other effect
+  // hasn't run yet → blank chart. Merging into one effect guarantees chart exists
+  // before buildMainSeries is called.
   useEffect(() => {
     if (!containerRef.current) return;
     const chart = createChart(containerRef.current, {
@@ -496,7 +501,28 @@ const LightweightChart = memo(function LightweightChart({
       },
     });
     chartRef.current = chart;
-    return () => { chart.remove(); chartRef.current = null; };
+
+    // FIX v83: buildMainSeries immediately after chart is ready — guaranteed order
+    if (chartTypeRef.current === 'candle') {
+      mainSeriesRef.current = chart.addCandlestickSeries({
+        upColor: 'rgba(38,166,154,1)', downColor: 'rgba(239,83,80,1)',
+        borderVisible: false,
+        wickUpColor: 'rgba(38,166,154,0.75)', wickDownColor: 'rgba(239,83,80,0.75)',
+      });
+    } else if (chartTypeRef.current === 'bar') {
+      mainSeriesRef.current = chart.addBarSeries({ upColor: 'rgba(38,166,154,1)', downColor: 'rgba(239,83,80,1)' });
+    } else if (chartTypeRef.current === 'line') {
+      mainSeriesRef.current = chart.addLineSeries({ color: 'rgba(80,160,255,0.9)', lineWidth: 2, priceLineVisible: false });
+    } else {
+      mainSeriesRef.current = chart.addAreaSeries({ lineColor: 'rgba(80,160,255,0.9)', topColor: 'rgba(80,160,255,0.25)', bottomColor: 'rgba(80,160,255,0)', lineWidth: 2, priceLineVisible: false });
+    }
+
+    return () => {
+      mainSeriesRef.current = null;
+      chart.remove();
+      chartRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── canvas resize via ResizeObserver ─────────────────────────────────────────
@@ -714,10 +740,7 @@ const LightweightChart = memo(function LightweightChart({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, exchange, interval]); // chartType + indicators intentionally excluded
 
-  useEffect(() => {
-    buildMainSeries(chartTypeRef.current);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // FIX v83: removed separate buildMainSeries useEffect([]) — merged into chart init above
 
   useEffect(() => {
     lastBarsHash.current = '';
