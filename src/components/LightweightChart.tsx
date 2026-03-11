@@ -1,4 +1,4 @@
-// LightweightChart.tsx — v82 PERF MAX
+// LightweightChart.tsx — v85 FIX: kline via proxy (CORS fix) + logo flip
 //
 // PERF vs prev v82:
 //  ✓ calcSMA: sliding window O(n) — was O(n²) slice+reduce
@@ -88,6 +88,11 @@ const BYBIT_TF: Record<Interval, string> = {
 const BINANCE_TF: Record<Interval, string> = {
   '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d',
 };
+
+// v85 FIX: kline must go through CF proxy — direct api.bybit.com/api.binance.com
+// blocked by CORS in production (Cloudflare Pages origin ≠ exchange API origin)
+const PROXY_REST = (import.meta.env.VITE_PROXY_URL as string | undefined)
+  ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 
 // ─── Math — all O(n) sliding window ──────────────────────────────────────────
 
@@ -694,7 +699,9 @@ const LightweightChart = memo(function LightweightChart({
       const sym = symbol.replace('/', '').replace('-', '').toUpperCase();
 
       if (exchange === 'bybit' || exchange === 'okx') {
-        const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${sym}&interval=${BYBIT_TF[interval]}&limit=300`;
+        // v85 FIX: route through CF proxy — avoids CORS block on Cloudflare Pages
+        // CF worker proxies /bybit-api/* → https://api.bybit.com/*
+        const url = `${PROXY_REST}/bybit-api/v5/market/kline?category=spot&symbol=${sym}&interval=${BYBIT_TF[interval]}&limit=300`;
         const res = await fetch(url, { signal: ac.signal });
         const json = await res.json();
         bars = (json?.result?.list ?? []).reverse().map((c: string[]) => ({
@@ -704,7 +711,9 @@ const LightweightChart = memo(function LightweightChart({
           volume: Number(c[5]),
         }));
       } else {
-        const url = `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${BINANCE_TF[interval]}&limit=300`;
+        // v85 FIX: route through CF proxy — avoids CORS block on Cloudflare Pages
+        // CF worker proxies /api/* → https://api.binance.com/*
+        const url = `${PROXY_REST}/api/v3/klines?symbol=${sym}&interval=${BINANCE_TF[interval]}&limit=300`;
         const res = await fetch(url, { signal: ac.signal });
         const json = await res.json();
         bars = (Array.isArray(json) ? json : []).map((c: unknown[]) => ({
