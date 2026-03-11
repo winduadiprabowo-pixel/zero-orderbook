@@ -301,8 +301,7 @@ const OnboardingOverlay = memo(({ onDone }: { onDone: () => void }) => {
             </g>
           </g>
         </svg>
-          ZERØ ORDER BOOK
-        </div>
+        <div style={{ fontSize: 13, letterSpacing: '0.15em', color: 'rgba(255,255,255,0.9)' }}>ZERØ ORDER BOOK</div>
       </div>
 
       {/* Step card */}
