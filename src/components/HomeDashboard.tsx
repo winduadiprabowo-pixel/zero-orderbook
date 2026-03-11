@@ -130,6 +130,10 @@ interface NewsItem {
 
 const ONBOARD_KEY = 'zero_onboarded_v1';
 
+// v89: module-level proxy constant — dipakai useNews + sparkline
+const PROXY_REST = (import.meta.env.VITE_PROXY_URL as string | undefined)
+  ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
+
 // ─── useNews hook ─────────────────────────────────────────────────────────────
 function useNews() {
   const [news, setNews] = useState<NewsItem[]>([]);
@@ -137,7 +141,7 @@ function useNews() {
   useEffect(() => {
     mountedRef.current = true;
     const ctrl = new AbortController();
-    fetch('https://min-api.cryptocompare.com/data/v2/news/?lang=EN&sortOrder=popular&limit=6', { signal: ctrl.signal })
+    fetch(`${PROXY_REST}/cryptocompare/data/v2/news/?lang=EN&sortOrder=popular&limit=6`, { signal: ctrl.signal })
       .then(r => r.json())
       .then((d: { Data?: Array<{ id: string; title: string; url: string; imageurl: string; source_info?: { name: string }; published_on: number }> }) => {
         if (!mountedRef.current) return;
@@ -648,12 +652,9 @@ const HomeDashboard = memo(({
   }, [tickerMap]);
 
   // v86: Real sparkline data — fetch 48x 1h candles via proxy, zero mock data
-  // Uses same PROXY_REST pattern as LightweightChart + useMultiExchangeWs
-  const PROXY_REST = (import.meta as { env?: Record<string, string> }).env?.VITE_PROXY_URL
-    ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
+  // v89: PROXY_REST dari module level constant
 
   const [sparkData, setSparkData] = React.useState<Record<string, { time: number; value: number }[]>>({});
-
   React.useEffect(() => {
     if (tickerMap.size === 0) return;
     const ac = new AbortController();
