@@ -409,7 +409,7 @@ const ColHeader = memo(function ColHeader({
                 position: 'absolute', right: 0, top: 'calc(100% + 2px)',
                 background: 'rgba(18,21,32,0.98)',
                 border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '4px', zIndex: 999, padding: '3px',
+                borderRadius: '4px', padding: '3px',
                 display: 'flex', flexDirection: 'column', gap: '1px',
                 boxShadow: '0 4px 12px rgba(0,0,0,0.6)', minWidth: '72px', zIndex: 1200,
               }}>
