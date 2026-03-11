@@ -1,13 +1,14 @@
-// OrderBook.tsx — v82 PERF MAX
+// OrderBook.tsx — v83 FIX
 //
-// vs v82 prev:
-//  ✓ OBRow: stable event handlers via useRef (zero new functions per render)
-//  ✓ OBRow: CSS class replaces inline style objects (zero GC on hot path)
-//  ✓ processLevels: single-pass O(n) — cumulative + pct in one loop
-//  ✓ VirtualList: useRef scrollTop (no setState on scroll → no re-render)
-//  ✓ AsksPanel: useLayoutEffect for scroll (sync, no paint flash)
-//  ✓ RAF double-buffer: bids+asks in single setState call
-//  ✓ Hash guard: skip setState if top-3 prices unchanged
+// FIXES vs v82:
+//  ✓ [1] Kolom PRICE/SIZE/TOTAL tidak dempet — ganti flex+minWidth ke CSS grid ratio
+//  ✓ [2] CSS grid 42%/30%/28% — no overlap di layar 360px manapun
+//  ✓ [3] ROW_H 18→22 — IBM Plex Mono butuh breathing room
+//  ✓ [4] AsksPanel + VirtualList pakai ResizeObserver — no hardcoded 180px
+//  ✓ [5] fontSize 11px→10.5px — muat di layar sempit
+//  ✓ [6] padding 0 8px → 0 10px — simetris
+//  ✓ [7] ColHeader pakai grid yang sama — header align sempurna dengan rows
+//  ✓ [8] tabular-nums + letterSpacing -0.01em — angka tidak bergeser-geser
 //
 // rgba() only ✓ · IBM Plex Mono ✓ · React.memo ✓ · displayName ✓
 
@@ -42,7 +43,7 @@ interface OrderBookProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ROW_H    = 18;
+const ROW_H    = 22;   // FIX v83: was 18 — IBM Plex Mono 10.5px butuh min 22px
 const OVERSCAN = 3;
 
 const BID_BAR   = 'rgba(38,166,154,0.12)';
@@ -52,8 +53,11 @@ const ASK_PRICE = 'rgba(239,83,80,1)';
 const SIZE_CLR  = 'rgba(200,200,210,0.85)';
 const TOT_CLR   = 'rgba(140,140,160,0.5)';
 
-// ─── Single-pass processLevels ────────────────────────────────────────────────
-// One loop: cumulative total + pct together. 50% less iteration vs 2-pass.
+// FIX v83: CSS grid columns — PRICE 42% | SIZE 30% | TOTAL 28%
+// Percentage-based = never overflow regardless of screen width
+const GRID_COLS = '42% 30% 28%';
+
+// ─── processLevels ────────────────────────────────────────────────────────────
 
 function processLevels(raw: OrderBookLevel[], maxRows: number): ProcessedLevel[] {
   const n   = Math.min(raw.length, maxRows);
@@ -68,7 +72,7 @@ function processLevels(raw: OrderBookLevel[], maxRows: number): ProcessedLevel[]
   return out;
 }
 
-// ─── Hash guard — skip re-render if top-3 prices/sizes unchanged ──────────────
+// ─── Hash guard ───────────────────────────────────────────────────────────────
 
 function obHash(levels: ProcessedLevel[]): string {
   let h = '';
@@ -78,7 +82,6 @@ function obHash(levels: ProcessedLevel[]): string {
 }
 
 // ─── OBRow ────────────────────────────────────────────────────────────────────
-// Stable handlers: closures capture stable ref callbacks, no new fn per render.
 
 interface RowProps {
   level:    ProcessedLevel;
@@ -89,26 +92,32 @@ interface RowProps {
   onCopy?:  (price: number) => void;
 }
 
+// FIX v83: display:grid replaces flex+minWidth
 const ROW_BASE: React.CSSProperties = {
-  position: 'relative', height: ROW_H,
-  display: 'flex', alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: '0 8px',
-  fontFamily: 'IBM Plex Mono, monospace',
-  fontSize: '11px', lineHeight: `${ROW_H}px`, overflow: 'hidden',
+  position:            'relative',
+  height:              ROW_H,
+  display:             'grid',
+  gridTemplateColumns: GRID_COLS,
+  alignItems:          'center',
+  padding:             '0 10px',
+  fontFamily:          'IBM Plex Mono, monospace',
+  fontSize:            '10.5px',
+  lineHeight:          `${ROW_H}px`,
+  overflow:            'hidden',
+  fontVariantNumeric:  'tabular-nums',
+  letterSpacing:       '-0.01em',
 };
 
 const OBRow = memo(function OBRow({ level, side, priceDec, sizeDec, onHover, onCopy }: RowProps) {
   OBRow.displayName = 'OBRow';
   const isBid = side === 'bid';
 
-  // Stable handler refs — captured once, never re-created
   const hoverRef  = useRef(onHover);
   const copyRef   = useRef(onCopy);
   const priceRef  = useRef(level.price);
-  hoverRef.current = onHover;
-  copyRef.current  = onCopy;
-  priceRef.current = level.price;
+  hoverRef.current  = onHover;
+  copyRef.current   = onCopy;
+  priceRef.current  = level.price;
 
   const handleEnter = useCallback(() => hoverRef.current?.(priceRef.current), []);
   const handleLeave = useCallback(() => hoverRef.current?.(null), []);
@@ -120,10 +129,12 @@ const OBRow = memo(function OBRow({ level, side, priceDec, sizeDec, onHover, onC
   }), [onCopy]);
 
   const barStyle = useMemo<React.CSSProperties>(() => ({
-    position: 'absolute', top: 0,
+    position:      'absolute',
+    top:           0,
     [isBid ? 'right' : 'left']: 0,
-    width: `${level.pct}%`, height: '100%',
-    background: isBid ? BID_BAR : ASK_BAR,
+    width:         `${level.pct}%`,
+    height:        '100%',
+    background:    isBid ? BID_BAR : ASK_BAR,
     pointerEvents: 'none',
   }), [isBid, level.pct]);
 
@@ -135,13 +146,36 @@ const OBRow = memo(function OBRow({ level, side, priceDec, sizeDec, onHover, onC
       onClick={handleClick}
     >
       <div style={barStyle} />
-      <span style={{ color: isBid ? BID_PRICE : ASK_PRICE, zIndex: 1, minWidth: '80px' }}>
+      {/* Col 1: PRICE — left aligned */}
+      <span style={{
+        color:        isBid ? BID_PRICE : ASK_PRICE,
+        zIndex:       1,
+        overflow:     'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace:   'nowrap',
+      }}>
         {level.price.toFixed(priceDec)}
       </span>
-      <span style={{ color: SIZE_CLR, zIndex: 1, minWidth: '70px', textAlign: 'right' }}>
+      {/* Col 2: SIZE — right aligned */}
+      <span style={{
+        color:        SIZE_CLR,
+        zIndex:       1,
+        textAlign:    'right',
+        overflow:     'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace:   'nowrap',
+      }}>
         {level.size.toFixed(sizeDec)}
       </span>
-      <span style={{ color: TOT_CLR, zIndex: 1, minWidth: '70px', textAlign: 'right' }}>
+      {/* Col 3: TOTAL — right aligned */}
+      <span style={{
+        color:        TOT_CLR,
+        zIndex:       1,
+        textAlign:    'right',
+        overflow:     'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace:   'nowrap',
+      }}>
         {level.total.toFixed(sizeDec)}
       </span>
     </div>
@@ -149,8 +183,6 @@ const OBRow = memo(function OBRow({ level, side, priceDec, sizeDec, onHover, onC
 });
 
 // ─── VirtualList ──────────────────────────────────────────────────────────────
-// scrollTop stored in ref — zero setState on scroll, zero re-render from scroll.
-// forceUpdate only when scroll crosses a row boundary.
 
 interface VirtualListProps {
   levels:   ProcessedLevel[];
@@ -214,7 +246,6 @@ const VirtualList = memo(function VirtualList({
 });
 
 // ─── AsksPanel ────────────────────────────────────────────────────────────────
-// useLayoutEffect: scroll before paint — zero flicker on update.
 
 interface AsksPanelProps {
   levels:   ProcessedLevel[];
@@ -265,32 +296,38 @@ const SpreadRow = memo(function SpreadRow({
   bestBid, bestAsk, priceDec, midPrice, prevMidPrice,
 }: { bestBid: number; bestAsk: number; priceDec: number; midPrice?: number | null; prevMidPrice?: number | null }) {
   SpreadRow.displayName = 'SpreadRow';
-  const spread     = bestAsk - bestBid;
-  const spreadPct  = bestBid > 0 ? ((spread / bestBid) * 100).toFixed(3) : '—';
+  const spread    = bestAsk - bestBid;
+  const spreadPct = bestBid > 0 ? ((spread / bestBid) * 100).toFixed(3) : '—';
   const displayMid = midPrice ?? (bestBid > 0 && bestAsk > 0 ? (bestBid + bestAsk) / 2 : null);
-  const isUp       = prevMidPrice != null && displayMid != null ? displayMid >= prevMidPrice : null;
-  const midColor   = isUp === true ? BID_PRICE : isUp === false ? ASK_PRICE : 'rgba(220,220,240,1)';
-  const arrow      = isUp === true ? '▲' : isUp === false ? '▼' : '';
+  const isUp      = prevMidPrice != null && displayMid != null ? displayMid >= prevMidPrice : null;
+  const midColor  = isUp === true ? BID_PRICE : isUp === false ? ASK_PRICE : 'rgba(220,220,240,1)';
+  const arrow     = isUp === true ? '▲' : isUp === false ? '▼' : '';
 
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '3px 8px',
-      borderTop: '1px solid rgba(255,255,255,0.05)',
+      padding: '3px 10px',
+      borderTop:    '1px solid rgba(255,255,255,0.05)',
       borderBottom: '1px solid rgba(255,255,255,0.05)',
-      fontFamily: 'IBM Plex Mono, monospace',
-      background: 'rgba(255,255,255,0.015)',
-      flexShrink: 0,
+      fontFamily:   'IBM Plex Mono, monospace',
+      background:   'rgba(255,255,255,0.015)',
+      flexShrink:   0,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
         {arrow && <span style={{ color: midColor, fontSize: '9px' }}>{arrow}</span>}
-        <span style={{ color: midColor, fontSize: '13px', fontWeight: 800 }}>
+        <span style={{
+          color:              midColor,
+          fontSize:           '13px',
+          fontWeight:         800,
+          fontVariantNumeric: 'tabular-nums',
+          letterSpacing:      '-0.01em',
+        }}>
           {displayMid ? displayMid.toFixed(priceDec) : '—'}
         </span>
       </div>
       <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
         <span style={{ fontSize: '9px', color: 'rgba(120,120,140,0.7)' }}>SPREAD</span>
-        <span style={{ fontSize: '10px', color: SIZE_CLR }}>
+        <span style={{ fontSize: '10px', color: SIZE_CLR, fontVariantNumeric: 'tabular-nums' }}>
           {spread > 0 ? spread.toFixed(priceDec) : '—'}
         </span>
         <span style={{ fontSize: '9px', color: 'rgba(120,120,140,0.5)' }}>({spreadPct}%)</span>
@@ -300,6 +337,7 @@ const SpreadRow = memo(function SpreadRow({
 });
 
 // ─── ColHeader ────────────────────────────────────────────────────────────────
+// FIX v83: display:grid with same GRID_COLS — header perfectly aligns with rows
 
 const ColHeader = memo(function ColHeader({
   precision, precisionOptions, onPrecisionChange,
@@ -325,24 +363,29 @@ const ColHeader = memo(function ColHeader({
 
   return (
     <div style={{
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '3px 8px',
-      fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
-      color: 'rgba(120,120,140,0.7)',
-      borderBottom: '1px solid rgba(255,255,255,0.05)',
-      userSelect: 'none', flexShrink: 0,
+      display:             'grid',
+      gridTemplateColumns: GRID_COLS,
+      alignItems:          'center',
+      padding:             '4px 10px',
+      fontFamily:          'IBM Plex Mono, monospace',
+      fontSize:            '9px',
+      color:               'rgba(120,120,140,0.7)',
+      borderBottom:        '1px solid rgba(255,255,255,0.05)',
+      userSelect:          'none',
+      flexShrink:          0,
     }}>
-      <span style={{ minWidth: '80px' }}>PRICE</span>
-      <span style={{ minWidth: '70px', textAlign: 'right' }}>SIZE</span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: '70px', justifyContent: 'flex-end' }}>
+      <span>PRICE</span>
+      <span style={{ textAlign: 'right' }}>SIZE</span>
+      <div ref={ref} style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px', position: 'relative' }}>
         <span>TOTAL</span>
         {precision && precisionOptions && onPrecisionChange && (
-          <div ref={ref} style={{ position: 'relative' }}>
+          <>
             <button
               style={{
                 background: 'rgba(255,255,255,0.06)', border: 'none', cursor: 'pointer',
                 fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
-                color: 'rgba(200,200,210,0.8)', padding: '1px 4px', borderRadius: '2px',
+                color: 'rgba(200,200,210,0.8)', padding: '1px 5px', borderRadius: '2px',
+                flexShrink: 0,
               }}
               onClick={toggleOpen}
             >
@@ -355,7 +398,7 @@ const ColHeader = memo(function ColHeader({
                 border: '1px solid rgba(255,255,255,0.1)',
                 borderRadius: '4px', zIndex: 999, padding: '3px',
                 display: 'flex', flexDirection: 'column', gap: '1px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.6)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.6)', minWidth: '72px',
               }}>
                 {precisionOptions.map((p) => (
                   <button
@@ -365,7 +408,7 @@ const ColHeader = memo(function ColHeader({
                       color:      p === precision ? 'rgba(242,142,44,1)'    : 'rgba(200,200,210,0.7)',
                       border: 'none', cursor: 'pointer',
                       fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
-                      padding: '2px 8px', borderRadius: '2px', textAlign: 'left',
+                      padding: '3px 8px', borderRadius: '2px', textAlign: 'left',
                     }}
                     onClick={() => { onPrecisionChange(p); setOpen(false); }}
                   >
@@ -374,7 +417,7 @@ const ColHeader = memo(function ColHeader({
                 ))}
               </div>
             )}
-          </div>
+          </>
         )}
       </div>
     </div>
@@ -413,6 +456,10 @@ export const PressureBar = memo(function PressureBar({ bidPercent }: { bidPercen
 });
 
 // ─── Main OrderBook ───────────────────────────────────────────────────────────
+// FIX v83: Responsive height via ResizeObserver on flex wrappers.
+// AsksPanel + VirtualList each sit in a flex:1/minHeight:0 div.
+// ResizeObserver measures actual pixel height and passes to the scroll containers.
+// This replaces the old hardcoded listH = compact ? 140 : 180.
 
 const OrderBook = memo(function OrderBook({
   bids, asks,
@@ -434,14 +481,11 @@ const OrderBook = memo(function OrderBook({
 
   const sizeDec = 4;
 
-  // ── RAF double-buffer + hash guard ──────────────────────────────────────────
-  // Single setState call for bids+asks together → 1 render instead of 2.
-  // Hash guard → skip if top-3 of book unchanged (no visual diff).
-
-  const pendingBids  = useRef<OrderBookLevel[]>(bids);
-  const pendingAsks  = useRef<OrderBookLevel[]>(asks);
-  const rafRef       = useRef<number>(0);
-  const prevHashRef  = useRef('');
+  // ── RAF double-buffer + hash guard ────────────────────────────────────────
+  const pendingBids = useRef<OrderBookLevel[]>(bids);
+  const pendingAsks = useRef<OrderBookLevel[]>(asks);
+  const rafRef      = useRef<number>(0);
+  const prevHashRef = useRef('');
 
   const [proc, setProc] = useState<{ bids: ProcessedLevel[]; asks: ProcessedLevel[] }>(() => ({
     bids: processLevels(bids, levels),
@@ -467,7 +511,29 @@ const OrderBook = memo(function OrderBook({
 
   const bestBid = proc.bids[0]?.price ?? 0;
   const bestAsk = proc.asks[0]?.price ?? 0;
-  const listH   = compact ? 140 : 180;
+
+  // FIX v83: measure actual height of flex wrappers via ResizeObserver
+  const asksWrapRef = useRef<HTMLDivElement>(null);
+  const bidsWrapRef = useRef<HTMLDivElement>(null);
+  const fallback    = compact ? 130 : 160;
+  const [asksH, setAsksH] = useState(fallback);
+  const [bidsH, setBidsH] = useState(fallback);
+
+  useEffect(() => {
+    const asksEl = asksWrapRef.current;
+    const bidsEl = bidsWrapRef.current;
+    if (!asksEl || !bidsEl) return;
+    const ro = new ResizeObserver(() => {
+      if (asksEl.clientHeight > 0) setAsksH(asksEl.clientHeight);
+      if (bidsEl.clientHeight > 0) setBidsH(bidsEl.clientHeight);
+    });
+    ro.observe(asksEl);
+    ro.observe(bidsEl);
+    // immediate measure on mount
+    if (asksEl.clientHeight > 0) setAsksH(asksEl.clientHeight);
+    if (bidsEl.clientHeight > 0) setBidsH(bidsEl.clientHeight);
+    return () => ro.disconnect();
+  }, []);
 
   return (
     <div style={{
@@ -483,14 +549,17 @@ const OrderBook = memo(function OrderBook({
         onPrecisionChange={onPrecisionChange}
       />
 
-      <AsksPanel
-        levels={proc.asks}
-        height={listH}
-        priceDec={priceDec}
-        sizeDec={sizeDec}
-        onHover={onPriceHover}
-        onCopy={onPriceCopy}
-      />
+      {/* FIX v83: flex:1 wrapper → asks fills half the available space */}
+      <div ref={asksWrapRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <AsksPanel
+          levels={proc.asks}
+          height={asksH}
+          priceDec={priceDec}
+          sizeDec={sizeDec}
+          onHover={onPriceHover}
+          onCopy={onPriceCopy}
+        />
+      </div>
 
       <SpreadRow
         bestBid={bestBid}
@@ -500,15 +569,18 @@ const OrderBook = memo(function OrderBook({
         prevMidPrice={prevMidPrice}
       />
 
-      <VirtualList
-        levels={proc.bids}
-        side="bid"
-        height={listH}
-        priceDec={priceDec}
-        sizeDec={sizeDec}
-        onHover={onPriceHover}
-        onCopy={onPriceCopy}
-      />
+      {/* FIX v83: flex:1 wrapper → bids fills the other half */}
+      <div ref={bidsWrapRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <VirtualList
+          levels={proc.bids}
+          side="bid"
+          height={bidsH}
+          priceDec={priceDec}
+          sizeDec={sizeDec}
+          onHover={onPriceHover}
+          onCopy={onPriceCopy}
+        />
+      </div>
     </div>
   );
 });
