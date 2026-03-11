@@ -294,13 +294,13 @@ const OnboardingOverlay = memo(({ onDone }: { onDone: () => void }) => {
       <div style={{ marginBottom: 32, textAlign: 'center' as const }}>
         <svg width="52" height="52" viewBox="0 0 32 32" style={{ marginBottom: 6 }}>
           <rect width="32" height="32" rx="6" fill="rgba(13,16,23,1)" />
-          <g transform="translate(-7.099,-8.713) scale(0.08408)">
+          {/* v86: flip horizontal — squirrel faces right */}
+          <g transform="translate(32,0) scale(-1,1)"><g transform="translate(-7.099,-8.713) scale(0.08408)">
             <g transform="translate(244.1875,167.25)">
               <path fill="white" d="M0 0 C1.8125 0.75 1.8125 0.75 2.8125 2.75 C3.82029164 8.59519152 3.77238544 14.17389546 3.48828125 20.08203125 C3.39836749 22.43812024 3.31293905 24.79433429 3.22875977 27.15063477 C3.15977554 28.75415277 3.07100069 30.35694557 2.9621582 31.95825195 C2.12383386 42.2805402 2.12383386 42.2805402 6.37451172 51.31396484 C8.38433723 53.4085528 10.51829653 55.25577556 12.7722168 57.08081055 C23.11283881 65.50915826 27.41261445 81.05589217 28.8125 93.75 C29.8540625 93.82476562 30.895625 93.89953125 31.96875 93.9765625 C48.31810674 95.38068373 61.25949855 100.61869098 74.8125 109.75 C75.8025 110.41 76.7925 111.07 77.8125 111.75 C78.08344482 110.88217896 78.08344482 110.88217896 78.35986328 109.99682617 C84.3340793 91.03067165 91.35771148 71.94816718 109.3984375 61.2109375 C116.818793 57.40048467 123.22335294 55.37633693 131.5625 55.4375 C132.36236328 55.44313965 133.16222656 55.4487793 133.98632812 55.45458984 C145.2024149 55.68465174 154.70118805 59.15498854 163.078125 66.82421875 C169.18470355 73.3039771 172.94760503 79.47653418 173.25 88.5 C173.08127879 92.6598505 172.69539935 95.55821858 169.8125 98.75 C166.1373086 100.95511484 163.56323822 101.11137924 159.3828125 100.56640625 C155.10632198 99.20806807 151.93027126 96.46983995 148.48828125 93.66015625 C143.35849931 89.99816593 138.02500915 89.02462228 131.8125 89.75 C125.2509624 91.13005571 120.87102871 94.487839 116.8125 99.75 C108.76263984 112.4732512 103.51300368 131.69200794 105.8125 146.75 C106.54497368 148.46787336 107.28006866 150.18490802 108.04858398 151.88696289 C115.40860711 169.83657505 112.46237359 190.96011363 105.27124023 208.35107422 C98.7525877 223.33517927 88.37336766 234.90107614 74.375 243.25 C73.73256348 243.63486572 73.09012695 244.01973145 72.42822266 244.41625977 C70.26323927 245.63123631 68.05547684 246.68530512 65.8125 247.75 C64.98751511 248.17595963 64.16253021 248.60191925 63.31254578 249.04078674 C51.11028677 254.4068821 38.09982637 253.43137642 25.01578236 253.32283282 C21.52809877 253.29875641 18.04042522 253.30194602 14.55267334 253.30152893 C8.71270139 253.29692701 2.87305943 253.27344385 -2.96679688 253.23706055 C-9.71879713 253.19510673 -16.47050242 253.17773081 -23.22262549 253.1744408 C-30.43144532 253.17084695 -37.6401594 253.15200782 -44.84893513 253.12732053 C-54.91834944 253.10730877 -58.76721162 253.08294474 -62.61621094 253.05639648 C-67.66210373 253.03941963 -67.66210373 253.03941963 -69.25775146 253.02415466 C-72.01272202 253.01006222 -74.1875 252.75 -74.1875 252.75 C-76.1875 250.75 -77.44122824 243.1311899 -76.30071581 237.2760436 C-71.953125 230.9375 -69.31589831 227.6701395 -66.68370793 225.08080529 C-63.1875 222.75 -61.375 221.5 -53.7453267 217.20830877 C-44.64303115 218.42162986 -36.1875 218.75 C-36.66960937 217.71101562 -37.15171875 216.67203125 -37.6484375 215.6015625 C-38.28700564 214.19295632 -38.92499529 212.78408779 -39.5625 211.375 C-40.5234375 209.31640625 -44.70919025 199.98566574 -45.57585228 190.83680584 C-45.5625 180.6875 -45.56420898 177.39208984 -45.42342264 166.9615913 C-43.47435948 157.61057844 -40.1875 147.75 C-43.78125 147.85546875 -66.38189904 148.31819249 -88.23564577 143.89462307 C-105.1875 127.75 -111.77819367 119.962672 -112.82206639 112.79195713 C-112.1875 102.75 -111.47093929 98.73547772 -110.39007055 94.8938857 C-109.1875 91 -108.23608398 87.85107422 -104.10216937 74.67352051 C-98.59241368 63.03423487 -89.1875 52.75 C-88.0840625 51.48671875 -87.515625 50.8359375 -78.59704746 41.19537987 C-64.38890246 33.11157963 -51.1875 31.75 C-41.19634717 31.63121311 -36.1875 31.75 C-35.375 30.0078125 -30.09030803 19.95994422 -12.8051388 -1.46344443 Z" />
             </g>
-          </g>
+          </g></g>
         </svg>
-        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 3, color: COLORS.gold }}>
           ZERØ ORDER BOOK
         </div>
       </div>
@@ -648,25 +648,42 @@ const HomeDashboard = memo(({
     return () => clearTimeout(tid);
   }, [tickerMap]);
 
-  // Sparkline data — generated once per mount (swap with real kline hook later)
-  const sparkData = useMemo(() => {
-    const gen = (sym: string) => {
-      const t    = tickerMap.get(sym.toUpperCase());
-      const up   = (t?.changePct ?? 0) >= 0;
-      let base   = t?.lastPrice ?? 100;
-      const pts: { time: number; value: number }[] = [];
-      const now  = Math.floor(Date.now() / 1000);
-      for (let i = 47; i >= 0; i--) {
-        base += (Math.random() - (up ? 0.44 : 0.56)) * base * 0.004;
-        pts.push({ time: now - i * 1800, value: Math.max(base, 1e-9) });
-      }
-      return pts;
-    };
-    const out: Record<string, { time: number; value: number }[]> = {};
-    tickerMap.forEach((_, sym) => { out[sym] = gen(sym); });
-    return out;
+  // v86: Real sparkline data — fetch 48x 1h candles via proxy, zero mock data
+  // Uses same PROXY_REST pattern as LightweightChart + useMultiExchangeWs
+  const PROXY_REST = (import.meta as { env?: Record<string, string> }).env?.VITE_PROXY_URL
+    ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
+
+  const [sparkData, setSparkData] = React.useState<Record<string, { time: number; value: number }[]>>({});
+
+  React.useEffect(() => {
+    if (tickerMap.size === 0) return;
+    const ac = new AbortController();
+    const syms = [...tickerMap.keys()].slice(0, 20); // top 20 only — avoid rate limit
+
+    async function fetchOne(sym: string) {
+      try {
+        const url = `${PROXY_REST}/bybit-api/v5/market/kline?category=spot&symbol=${sym}&interval=60&limit=48`;
+        const res = await fetch(url, { signal: ac.signal });
+        if (!res.ok) return;
+        const json = await res.json() as { result?: { list?: string[][] } };
+        const list = json?.result?.list ?? [];
+        if (!list.length) return;
+        const pts = list.reverse().map((c) => ({
+          time:  Math.floor(Number(c[0]) / 1000),
+          value: Number(c[4]), // close price
+        }));
+        setSparkData(prev => ({ ...prev, [sym]: pts }));
+      } catch { /* AbortError or network — silently skip */ }
+    }
+
+    // Stagger fetches 120ms apart — avoid burst on CF Worker
+    syms.forEach((sym, i) => {
+      setTimeout(() => { if (!ac.signal.aborted) fetchOne(sym); }, i * 120);
+    });
+
+    return () => ac.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // once per mount
+  }, [tickerMap.size > 0]); // run once when tickers first arrive
 
   // Pull-to-refresh — WS auto-refreshes, just UX delay
   // PTR: delegate to parent refetch (tickers REST + globalStats query invalidate)
