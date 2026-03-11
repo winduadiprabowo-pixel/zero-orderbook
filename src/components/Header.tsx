@@ -1,7 +1,6 @@
 /**
- * Header.tsx — ZERØ ORDER BOOK v39
- * UPGRADE: Feed latency indicator (FeedLatency component)
- * FIX MOBILE: harga tidak kepotong
+ * Header.tsx — ZERØ ORDER BOOK v88
+ * v88: Add TradeNowButton — redirect ke active exchange dengan pair aktif
  * rgba() only ✓ · IBM Plex Mono ✓ · React.memo ✓ · displayName ✓
  */
 
@@ -27,6 +26,38 @@ interface HeaderProps {
   onExchangeChange: (ex: ExchangeId) => void;
   isStale?:         boolean; // v63c: showing cached snapshot
 }
+
+// ── v88: Trade Now button ─────────────────────────────────────────────────────
+function getTradeUrl(exchange: ExchangeId, symbol: string): string {
+  const pair = symbol.replace('USDT', '_USDT');
+  if (exchange === 'bybit')   return `https://www.bybit.com/trade/spot/${pair}`;
+  if (exchange === 'binance') return `https://www.binance.com/trade/${symbol}?type=spot`;
+  if (exchange === 'okx')     return `https://www.okx.com/trade-spot/${symbol.replace('USDT', '-USDT').toLowerCase()}`;
+  return `https://www.bybit.com/trade/spot/${pair}`;
+}
+
+const TradeNowButton: React.FC<{ exchange: ExchangeId; symbol: string }> = React.memo(({ exchange, symbol }) => (
+  <a
+    href={getTradeUrl(exchange, symbol)}
+    target="_blank"
+    rel="noopener noreferrer"
+    title={`Trade ${symbol} on ${exchange.charAt(0).toUpperCase() + exchange.slice(1)}`}
+    style={{
+      display: 'flex', alignItems: 'center', gap: '4px',
+      padding: '0 9px', height: '28px', flexShrink: 0,
+      background: 'rgba(0,255,157,0.08)',
+      border: '1px solid rgba(0,255,157,0.28)',
+      borderRadius: '4px', cursor: 'pointer',
+      fontFamily: '"IBM Plex Mono", monospace',
+      fontSize: '9px', fontWeight: 700,
+      color: 'rgba(0,255,157,0.9)', letterSpacing: '0.07em',
+      whiteSpace: 'nowrap', textDecoration: 'none',
+    }}
+  >
+    TRADE ↗
+  </a>
+));
+TradeNowButton.displayName = 'TradeNowButton';
 
 const Header: React.FC<HeaderProps> = React.memo(({
   activeSymbol, symbolInfo, onOpenMarkets, onOpenPro,
@@ -272,6 +303,9 @@ const Header: React.FC<HeaderProps> = React.memo(({
 
         {/* ── Exchange Switcher ── */}
         <ExchangeSwitcher active={exchange} onChange={onExchangeChange} />
+
+        {/* ── v88: Trade Now button — redirect ke exchange aktif ── */}
+        <TradeNowButton exchange={exchange} symbol={activeSymbol} />
 
         {/* ── PRO CTA ── */}
         <button
