@@ -1,5 +1,12 @@
-// LightweightChart.tsx — v85 FIX: kline via proxy (CORS fix) + logo flip
+// LightweightChart.tsx — v88 LIVE KLINE WS
 //
+// v88 UPGRADES:
+//  ✓ Kline WebSocket live: Bybit/Binance/OKX push candle langsung — no polling lag
+//  ✓ Candle terakhir update real-time tiap tick dari exchange
+//  ✓ Candle baru otomatis append saat close — no reload needed
+//  ✓ Exponential backoff reconnect (1s→2s→4s→max 15s)
+//  ✓ Polling REST jadi fallback sync aja (10s/20s/30s/60s)
+//  ✓ mountedRef + wsRef guard penuh — no stale update
 // PERF vs prev v82:
 //  ✓ calcSMA: sliding window O(n) — was O(n²) slice+reduce
 //  ✓ calcBB:  sliding window O(n) — was O(n²)
@@ -764,7 +771,13 @@ const LightweightChart = memo(function LightweightChart({
   useEffect(() => {
     lastBarsHash.current = '';
     fetchCandles();
-    const id = setInterval(fetchCandles, interval === '1m' ? 15_000 : 60_000);
+    // v88: poll sebagai fallback saja — kline WS handle update utama
+    // kalau WS aktif, polling ini hanya sync ulang kalau ada gap
+    const POLL_MS: Record<Interval, number> = {
+      '1m': 10_000, '5m': 20_000, '15m': 30_000,
+      '1h': 60_000, '4h': 60_000, '1d': 60_000,
+    };
+    const id = setInterval(fetchCandles, POLL_MS[interval]);
     return () => { clearInterval(id); cancelAnimationFrame(rafRef.current); abortRef.current?.abort(); };
   }, [fetchCandles, interval]);
 
@@ -778,7 +791,178 @@ const LightweightChart = memo(function LightweightChart({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── clear drawings on symbol/interval change ──────────────────────────────────
+  // ── v88: KLINE WebSocket — candle baru push langsung dari exchange ────────────
+  // Bybit: wss://stream.bybit.com/v5/public/spot → kline.{tf}.{symbol}
+  // Binance: wss://stream.binance.me/stream → {sym}@kline_{tf}
+  // OKX: wss://ws.okx.com:8443/ws/v5/public → candle{tf} {instId}
+  // Candle terakhir update real-time, candle baru otomatis append
+  const klineWsRef      = useRef<WebSocket | null>(null);
+  const klineRetryRef   = useRef<ReturnType<typeof setTimeout>>();
+  const klineAttemptRef = useRef(0);
+
+  const connectKlineWs = useCallback(() => {
+    if (!mountedRef.current) return;
+    if (klineWsRef.current) {
+      klineWsRef.current.onclose = null;
+      klineWsRef.current.close();
+      klineWsRef.current = null;
+    }
+    if (klineRetryRef.current) clearTimeout(klineRetryRef.current);
+
+    const sym  = symbol.replace('/', '').replace('-', '').toUpperCase();
+    const exch = exchange;
+
+    let wsUrl  = '';
+    let subMsg: object = {};
+
+    if (exch === 'bybit') {
+      wsUrl  = 'wss://stream.bybit.com/v5/public/spot';
+      subMsg = { op: 'subscribe', args: [`kline.${BYBIT_TF[interval]}.${sym}`] };
+    } else if (exch === 'binance') {
+      const tf  = BINANCE_TF[interval];
+      wsUrl  = `wss://stream.binance.me/stream?streams=${sym.toLowerCase()}@kline_${tf}`;
+      subMsg = {}; // combined stream, no sub msg needed
+    } else if (exch === 'okx') {
+      const OKX_WS_TF: Record<Interval, string> = {
+        '1m':'1m','5m':'5m','15m':'15m','1h':'1H','4h':'4H','1d':'1D',
+      };
+      wsUrl  = 'wss://ws.okx.com:8443/ws/v5/public';
+      subMsg = { op: 'subscribe', args: [{ channel: `candle${OKX_WS_TF[interval]}`, instId: sym.replace('USDT', '-USDT') }] };
+    }
+
+    if (!wsUrl) return;
+
+    let ws: WebSocket;
+    try { ws = new WebSocket(wsUrl); } catch { return; }
+    klineWsRef.current = ws;
+
+    ws.onopen = () => {
+      if (!mountedRef.current || klineWsRef.current !== ws) return;
+      klineAttemptRef.current = 0;
+      if (Object.keys(subMsg).length > 0) ws.send(JSON.stringify(subMsg));
+    };
+
+    ws.onmessage = (ev) => {
+      if (!mountedRef.current || klineWsRef.current !== ws) return;
+      if (typeof ev.data !== 'string') return;
+      try {
+        const msg = JSON.parse(ev.data) as Record<string, unknown>;
+
+        let bar: OHLCBar | null = null;
+        let isConfirmed = false; // candle closed = append baru, open = update terakhir
+
+        if (exch === 'bybit') {
+          // { topic: 'kline.1.BTCUSDT', data: [{ start, open, high, low, close, confirm }] }
+          const topic = msg.topic as string | undefined;
+          if (!topic?.startsWith('kline.')) return;
+          const d = (msg.data as Array<Record<string, unknown>>)?.[0];
+          if (!d) return;
+          bar = {
+            time:   Math.floor(Number(d.start) / 1000) as UTCTimestamp,
+            open:   Number(d.open),
+            high:   Number(d.high),
+            low:    Number(d.low),
+            close:  Number(d.close),
+            volume: Number(d.volume),
+          };
+          isConfirmed = d.confirm === true;
+
+        } else if (exch === 'binance') {
+          // { stream: 'btcusdt@kline_1m', data: { k: { t, o, h, l, c, v, x } } }
+          const k = (msg.data as Record<string, unknown>)?.k as Record<string, unknown> | undefined;
+          if (!k) return;
+          bar = {
+            time:   Math.floor(Number(k.t) / 1000) as UTCTimestamp,
+            open:   Number(k.o),
+            high:   Number(k.h),
+            low:    Number(k.l),
+            close:  Number(k.c),
+            volume: Number(k.v),
+          };
+          isConfirmed = k.x === true;
+
+        } else if (exch === 'okx') {
+          // { arg: { channel: 'candle1m' }, data: [[ts, o, h, l, c, vol, ...]] }
+          const data = msg.data as unknown[][];
+          if (!data?.[0]) return;
+          const c = data[0];
+          bar = {
+            time:   Math.floor(Number(c[0]) / 1000) as UTCTimestamp,
+            open:   Number(c[1]),
+            high:   Number(c[2]),
+            low:    Number(c[3]),
+            close:  Number(c[4]),
+            volume: Number(c[5]),
+          };
+          // OKX: confirmed kalau c[8] === '1' (candle closed)
+          isConfirmed = c[8] === '1';
+        }
+
+        if (!bar || !mainSeriesRef.current) return;
+        const bars = rawBarsRef.current;
+        if (!bars.length) return;
+
+        const last = bars[bars.length - 1];
+        const ct   = chartTypeRef.current;
+
+        if (isConfirmed || bar.time > last.time) {
+          // Candle baru — append
+          if (bar.time > last.time) {
+            bars.push(bar);
+            // Jaga max 300 bars
+            if (bars.length > 300) bars.shift();
+          } else {
+            bars[bars.length - 1] = bar;
+          }
+        } else {
+          // Candle sama — update in-place
+          bars[bars.length - 1] = {
+            ...last,
+            high:  Math.max(last.high, bar.high),
+            low:   Math.min(last.low, bar.low),
+            close: bar.close,
+            volume: bar.volume,
+          };
+        }
+
+        const updated = bars[bars.length - 1];
+        if (ct === 'line' || ct === 'area') {
+          (mainSeriesRef.current as ISeriesApi<'Line'>).update({ time: updated.time, value: updated.close });
+        } else {
+          (mainSeriesRef.current as ISeriesApi<'Candlestick'>).update(updated as CandlestickData);
+        }
+
+      } catch { /* malformed frame */ }
+    };
+
+    ws.onclose = () => {
+      if (!mountedRef.current) return;
+      if (klineWsRef.current !== ws && klineWsRef.current !== null) return;
+      // Exponential backoff: 1s, 2s, 4s, max 15s
+      const delay = Math.min(1000 * Math.pow(2, klineAttemptRef.current), 15_000);
+      klineAttemptRef.current++;
+      klineRetryRef.current = setTimeout(() => {
+        if (mountedRef.current) connectKlineWs();
+      }, delay);
+    };
+
+    ws.onerror = () => ws.close();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, exchange, interval]);
+
+  useEffect(() => {
+    klineAttemptRef.current = 0;
+    connectKlineWs();
+    return () => {
+      if (klineRetryRef.current) clearTimeout(klineRetryRef.current);
+      if (klineWsRef.current) {
+        klineWsRef.current.onclose = null;
+        klineWsRef.current.close();
+        klineWsRef.current = null;
+      }
+    };
+  }, [connectKlineWs]);
+
   useEffect(() => {
     drawings.current = [];
     const canvas = canvasRef.current;
