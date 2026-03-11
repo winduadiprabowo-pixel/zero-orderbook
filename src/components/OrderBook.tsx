@@ -230,7 +230,7 @@ const VirtualList = memo(function VirtualList({
         <div style={{ position: 'absolute', top: startIdx * ROW_H, width: '100%' }}>
           {visible.map((lvl) => (
             <OBRow
-              key={lvl.price}
+              key={`${lvl.price}-${startIdx + visible.indexOf(lvl)}`}
               level={lvl}
               side={side}
               priceDec={priceDec}
@@ -260,24 +260,36 @@ const AsksPanel = memo(function AsksPanel({
   levels, height, priceDec, sizeDec, onHover, onCopy,
 }: AsksPanelProps) {
   AsksPanel.displayName = 'AsksPanel';
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef        = useRef<HTMLDivElement>(null);
+  const userScrolledRef  = useRef(false); // v86: don't override manual scroll
 
+  // Auto-scroll to bottom only when user hasn't manually scrolled
   useLayoutEffect(() => {
+    if (userScrolledRef.current) return;
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [levels]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // If user scrolls up more than 40px from bottom → they want to see levels
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    userScrolledRef.current = distFromBottom > 40;
+  }, []);
 
   return (
     <div
       ref={scrollRef}
+      onScroll={handleScroll}
       style={{
         height, overflowY: 'auto', overflowX: 'hidden',
         scrollbarWidth: 'none' as const,
         display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
       }}
     >
-      {levels.map((lvl) => (
+      {levels.map((lvl, i) => (
         <OBRow
-          key={lvl.price}
+          key={`${lvl.price}-${i}`}
           level={lvl}
           side="ask"
           priceDec={priceDec}
@@ -297,7 +309,8 @@ const SpreadRow = memo(function SpreadRow({
 }: { bestBid: number; bestAsk: number; priceDec: number; midPrice?: number | null; prevMidPrice?: number | null }) {
   SpreadRow.displayName = 'SpreadRow';
   const spread    = bestAsk - bestBid;
-  const spreadPct = bestBid > 0 ? ((spread / bestBid) * 100).toFixed(3) : '—';
+  // v86: guard crossed book (spread ≤ 0 during reconnect/delta lag)
+  const spreadPct = bestBid > 0 && spread > 0 ? ((spread / bestBid) * 100).toFixed(3) : '—';
   const displayMid = midPrice ?? (bestBid > 0 && bestAsk > 0 ? (bestBid + bestAsk) / 2 : null);
   const isUp      = prevMidPrice != null && displayMid != null ? displayMid >= prevMidPrice : null;
   const midColor  = isUp === true ? BID_PRICE : isUp === false ? ASK_PRICE : 'rgba(220,220,240,1)';
@@ -398,7 +411,7 @@ const ColHeader = memo(function ColHeader({
                 border: '1px solid rgba(255,255,255,0.1)',
                 borderRadius: '4px', zIndex: 999, padding: '3px',
                 display: 'flex', flexDirection: 'column', gap: '1px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.6)', minWidth: '72px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.6)', minWidth: '72px', zIndex: 1200,
               }}>
                 {precisionOptions.map((p) => (
                   <button
