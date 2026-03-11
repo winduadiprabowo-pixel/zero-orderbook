@@ -1,10 +1,7 @@
 /**
- * Index.tsx — ZERØ ORDER BOOK v59
- * DESKTOP: Chart full width (no sidebar) | Pair selector in header
- * MOBILE:  Market list first → tap pair → chart view (Bybit-style)
- * TABLET:  Chart top + tabs bottom
- * Performance: RAF-gated WS · no per-row state · React.memo everywhere
- * rgba() only ✓ · IBM Plex Mono ✓ · PRO CTA preserved ✓
+ * Index.tsx — ZERØ ORDER BOOK v88
+ * v88: Semua free (Depth, Liq, MarketData, Trades) | PRO = Multi-pair + Alerts + Watchlist
+ * v88: Real obRetry | Better ConnectionBanner | TradeNow button
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
@@ -23,7 +20,7 @@ import SymbolSearch               from '@/components/SymbolSearch';
 import CoinLogo                   from '@/components/CoinLogo';
 import CvdChart                   from '@/components/CvdChart';
 
-import LicenseModal, { ProLock } from '@/components/LicenseGate';
+import LicenseModal from '@/components/LicenseGate';
 import HomeDashboard             from '@/components/HomeDashboard';
 import ExchangeSwitcher        from '@/components/ExchangeSwitcher';
 import { type ExchangeId, getExchange } from '@/hooks/useExchange';
@@ -269,15 +266,24 @@ const ConnectionBanner: React.FC<{
       <div className="live-dot" style={{
         width: '6px', height: '6px', borderRadius: '50%',
         background: 'currentColor', flexShrink: 0,
+        animation: isReconn ? 'pulse 1.2s ease-in-out infinite' : 'none',
       }} />
-      {isReconn ? 'Reconnecting...' : 'Connection lost — data may be stale'}
+      {isReconn
+        ? 'Reconnecting to feed — auto-retry in progress...'
+        : 'Feed disconnected — data may be stale'}
       {!isReconn && (
         <button onClick={onRetry} style={{
           marginLeft: '4px', padding: '2px 10px',
-          border: '1px solid rgba(239,83,80,1)', borderRadius: '2px',
-          background: 'transparent', color: 'rgba(239,83,80,1)',
+          border: '1px solid rgba(239,83,80,0.7)', borderRadius: '2px',
+          background: 'rgba(239,83,80,0.10)', color: 'rgba(239,83,80,1)',
           cursor: 'pointer', fontFamily: 'inherit', fontSize: '9px', fontWeight: 700,
-        }}>Retry</button>
+          letterSpacing: '0.06em',
+        }}>↺ RETRY</button>
+      )}
+      {isReconn && (
+        <span style={{ marginLeft: 'auto', fontSize: '9px', opacity: 0.6, letterSpacing: '0.05em' }}>
+          Trying Bybit → Binance fallback
+        </span>
       )}
     </div>
   );
@@ -744,7 +750,14 @@ const Index: React.FC = () => {
   const latencyMs    = exData.latencyMs;
   const isStale      = exData.isStale; // v63c: cached snapshot indicator
   const lastUpdate   = Date.now();
-  const obRetry      = useCallback(() => {}, []);
+  // v88: real retry — toggle wsSymbol to force useMultiExchangeWs remount
+  const obRetry = useCallback(() => {
+    setWsSymbol(prev => {
+      // tiny no-op cycle: same symbol re-triggers the effect in useMultiExchangeWs
+      setTimeout(() => setWsSymbol(prev), 0);
+      return '';
+    });
+  }, []);
 
   // v61: signal splash to hide once first real data arrives (bids + ticker ready)
   const splashFiredRef = useRef(false);
@@ -906,15 +919,13 @@ const Index: React.FC = () => {
 
   // depthPanel: bids/asks/mid — same cadence as orderbook, OK
   const depthPanel = useMemo(() => (
-    <ProLock isPro={isUnlocked} onClickPro={handleOpenProModal} onStartTrial={startTrial} trialShown={trialShown} label="DEPTH CHART">
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(16,19,28,1)' }}>
-        <PanelHeader title="DEPTH CHART" />
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <DepthChart bids={bids} asks={asks} midPrice={midPrice} />
-        </div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(16,19,28,1)' }}>
+      <PanelHeader title="DEPTH CHART" />
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <DepthChart bids={bids} asks={asks} midPrice={midPrice} />
       </div>
-    </ProLock>
-  ), [isUnlocked, handleOpenProModal, startTrial, trialShown, bids, asks, midPrice]);
+    </div>
+  ), [bids, asks, midPrice]);
 
   // tradesPanel: only trades change — not bids/asks
   const tradesPanel = useMemo(() => (
@@ -928,19 +939,15 @@ const Index: React.FC = () => {
 
   // liqsPanel: liqs only
   const liqsPanel = useMemo(() => (
-    <ProLock isPro={isUnlocked} onClickPro={handleOpenProModal} onStartTrial={startTrial} trialShown={trialShown} label="LIQUIDATION FEED">
-      <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />
-    </ProLock>
-  ), [isUnlocked, handleOpenProModal, startTrial, trialShown, liqEvents, liqStats, liqStatus]);
+    <LiquidationFeed events={liqEvents} stats={liqStats} wsStatus={liqStatus} />
+  ), [liqEvents, liqStats, liqStatus]);
 
   // marketDataPanel: ticker + symbolInfo only
   const marketDataPanel = useMemo(() => (
-    <ProLock isPro={isUnlocked} onClickPro={handleOpenProModal} onStartTrial={startTrial} trialShown={trialShown} label="MARKET DATA">
-      <div style={{ ...P, overflowY: 'auto' }} className="hide-scrollbar">
-        <MarketData ticker={ticker} symbolInfo={symbolInfo} />
-      </div>
-    </ProLock>
-  ), [isUnlocked, handleOpenProModal, startTrial, trialShown, ticker, symbolInfo]);
+    <div style={{ ...P, overflowY: 'auto' }} className="hide-scrollbar">
+      <MarketData ticker={ticker} symbolInfo={symbolInfo} />
+    </div>
+  ), [ticker, symbolInfo]);
 
   return (
     <div
