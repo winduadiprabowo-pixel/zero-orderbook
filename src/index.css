@@ -27,7 +27,6 @@
     --ring:               rgba(38,166,154,1);
     --radius:             0.2rem;
 
-    /* ── ZERØ design tokens — v58 premium ── */
     --app-bg:             rgba(5,7,15,1);
     --panel-bg:           rgba(9,11,18,1);
     --panel-bg-alt:       rgba(11,14,22,1);
@@ -35,7 +34,6 @@
     --hover-bg:           rgba(255,255,255,0.04);
     --active-bg:          rgba(255,255,255,0.07);
 
-    /* v58: electric bid/ask — Grok recommendation */
     --bid-color:          rgba(0,255,157,1);
     --ask-color:          rgba(255,59,92,1);
     --bid-fill:           rgba(0,255,157,0.07);
@@ -56,7 +54,6 @@
     --border-mid:         rgba(255,255,255,0.08);
     --border-strong:      rgba(255,255,255,0.13);
 
-    /* v58: panel glow — premium card feel */
     --panel-glow:         inset 0 1px 0 rgba(255,255,255,0.04), inset 0 0 0 1px rgba(255,255,255,0.03);
     --panel-shadow:       0 8px 40px rgba(0,0,0,0.70);
     --panel-border:       1px solid rgba(255,255,255,0.055);
@@ -70,16 +67,14 @@
     --liq-short:          rgba(38,166,154,1);
     --liq-whale:          rgba(242,142,44,1);
 
-    /* ── v48: safe area vars ── */
     --safe-top:    env(safe-area-inset-top,    0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     --safe-left:   env(safe-area-inset-left,   0px);
     --safe-right:  env(safe-area-inset-right,  0px);
 
-    /* ── v48: nav heights ── */
-    --mobile-nav-h:  54px;
-    --header-h:      48px;
-    --toolbar-h:     34px;
+    --mobile-nav-h: 54px;
+    --header-h:     48px;
+    --toolbar-h:    34px;
   }
 }
 
@@ -91,7 +86,6 @@
   html {
     height: 100dvh;
     overflow: hidden;
-    /* prevent pull-to-refresh on mobile */
     overscroll-behavior: none;
   }
   body {
@@ -103,13 +97,11 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    /* safe area padding — notch/punch-hole/gesture bar */
     padding-top:    var(--safe-top);
     padding-bottom: var(--safe-bottom);
     padding-left:   var(--safe-left);
     padding-right:  var(--safe-right);
     font-size: 12px;
-    /* prevent text size adjustment on rotate */
     -webkit-text-size-adjust: 100%;
     touch-action: pan-y;
   }
@@ -127,36 +119,36 @@
 ::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.07); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
 
-/* ── Scanline overlay — v60: DISABLED (GPU killer on mobile, repaint every frame) ── */
+/* ── Scanline DISABLED (GPU killer on mobile) ── */
 @layer utilities {
   .scanline-overlay { position: relative; }
 }
 
-/* ── Flash animations — v58 electric colors ── */
+/* ── Flash animations ── */
 @keyframes flash-bid {
-  0%   { background-color: rgba(0,255,157,0.28); }
+  0%   { background-color: rgba(0,255,157,0.22); }
   100% { background-color: transparent; }
 }
 @keyframes flash-ask {
-  0%   { background-color: rgba(255,59,92,0.28); }
+  0%   { background-color: rgba(255,59,92,0.22); }
   100% { background-color: transparent; }
 }
-.flash-bid { animation: flash-bid 280ms ease-out forwards; }
-.flash-ask { animation: flash-ask 280ms ease-out forwards; }
+.flash-bid { animation: flash-bid 250ms ease-out forwards; }
+.flash-ask { animation: flash-ask 250ms ease-out forwards; }
 
-/* ── v58: Price update flash in header ── */
+/* ── Price flash — header ── */
 @keyframes price-up {
-  0%   { color: rgba(0,255,157,1); text-shadow: 0 0 12px rgba(0,255,157,0.5); }
+  0%   { color: rgba(0,255,157,1); text-shadow: 0 0 10px rgba(0,255,157,0.45); }
   100% { color: inherit; text-shadow: none; }
 }
 @keyframes price-down {
-  0%   { color: rgba(255,59,92,1); text-shadow: 0 0 12px rgba(255,59,92,0.5); }
+  0%   { color: rgba(255,59,92,1); text-shadow: 0 0 10px rgba(255,59,92,0.45); }
   100% { color: inherit; text-shadow: none; }
 }
-.price-flash-up   { animation: price-up   400ms ease-out forwards; }
-.price-flash-down { animation: price-down 400ms ease-out forwards; }
+.price-flash-up   { animation: price-up   350ms ease-out forwards; }
+.price-flash-down { animation: price-down 350ms ease-out forwards; }
 
-/* ── Shimmer ── */
+/* ── Skeleton shimmer ── */
 @keyframes shimmer {
   0%   { background-position: -400px 0; }
   100% { background-position: 400px 0; }
@@ -168,14 +160,14 @@
   border-radius: 2px;
 }
 
-/* ── Pulse dot ── */
+/* ── Live dot ── */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.4; transform: scale(0.8); }
 }
 .live-dot { animation: pulse-dot 1.8s ease-in-out infinite; }
 
-/* ── Slide in — v60: faster, only for non-high-frequency elements ── */
+/* ── Slide in ── */
 @keyframes slide-in-top {
   0%   { transform: translateY(-3px); opacity: 0; }
   100% { transform: translateY(0);    opacity: 1; }
@@ -189,17 +181,14 @@
 }
 .liq-whale-row { animation: liq-pulse 1.4s ease-in-out 3; }
 
-/* ── Badge glow ── */
-/* ── PRO badge — v60: glow on hover only, not infinite (saves GPU) ── */
+/* ── PRO badge glow — hover only, not infinite ── */
 .badge-glow {
-  box-shadow: 0 0 8px rgba(242,142,44,0.30);
+  box-shadow: 0 0 8px rgba(242,142,44,0.28);
   transition: box-shadow 200ms ease;
 }
-.badge-glow:hover {
-  box-shadow: 0 0 16px rgba(242,142,44,0.65);
-}
+.badge-glow:hover { box-shadow: 0 0 16px rgba(242,142,44,0.60); }
 
-/* ── Countdown pulse ── */
+/* ── Countdown urgent pulse ── */
 @keyframes countdown-pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.5; }
@@ -227,7 +216,7 @@
 }
 .fade-in { animation: fade-in 180ms ease-out; }
 
-/* ── Utility ── */
+/* ── Utilities ── */
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
@@ -260,83 +249,50 @@ button:focus-visible {
   outline-offset: -1px;
 }
 
-/* ── Touch tap highlight remove ── */
+/* ── Tap highlight remove ── */
 * { -webkit-tap-highlight-color: transparent; }
 
-/* ── v48: Touch device — no hover effects ── */
+/* ── Touch device — no hover effects ── */
 @media (hover: none) {
   button:hover, [role="button"]:hover { opacity: 1; }
 }
 
-/* ── v48: Mobile breakpoints ── */
+/* ── Mobile ── */
 @media (max-width: 767px) {
   .desktop-only { display: none !important; }
-
-  /* v62: 48px minimum tap target — Google Play Store / Apple HIG standard */
-  button, [role="button"], a {
-    min-height: 48px;
-    min-width: 48px;
-  }
-
-  /* Exception: small inline controls inside panels */
-  .compact-btn {
-    min-height: 28px !important;
-    min-width: 28px !important;
-  }
-
-  /* Mobile bottom nav safe area */
-  .mobile-nav-bar {
-    padding-bottom: max(var(--safe-bottom), 8px);
-  }
-
-  /* Mobile chart — hide minor axis clutter */
-  .lw-chart-mobile .tv-lightweight-charts {
-    font-size: 9px !important;
-  }
+  /* 48px min tap target — HIG/Play Store standard */
+  button, [role="button"], a { min-height: 48px; min-width: 48px; }
+  .compact-btn { min-height: 28px !important; min-width: 28px !important; }
+  .mobile-nav-bar { padding-bottom: max(var(--safe-bottom), 8px); }
+  .lw-chart-mobile .tv-lightweight-charts { font-size: 9px !important; }
 }
 
-/* ── v62: PWA standalone mode — extra top padding for notch ── */
+/* ── PWA standalone ── */
 @media (display-mode: standalone) {
-  body {
-    padding-top: max(var(--safe-top), 0px);
-  }
-  /* Hide browser chrome affordances */
+  body { padding-top: max(var(--safe-top), 0px); }
   .pwa-only { display: flex !important; }
   .browser-only { display: none !important; }
 }
 
-/* ── v48: Tablet breakpoints ── */
+/* ── Tablet ── */
 @media (min-width: 768px) {
   .mobile-only { display: none !important; }
 }
-
-/* ── v48: Tablet portrait — stack vertically ── */
 @media (min-width: 768px) and (max-width: 1279px) and (orientation: portrait) {
-  .tablet-portrait-stack {
-    flex-direction: column !important;
-  }
-  .tablet-portrait-chart-full {
-    height: 65% !important;
-    min-height: 320px !important;
-  }
-  .tablet-portrait-bottom {
-    height: 35% !important;
-  }
+  .tablet-portrait-stack { flex-direction: column !important; }
+  .tablet-portrait-chart-full { height: 65% !important; min-height: 320px !important; }
+  .tablet-portrait-bottom { height: 35% !important; }
 }
-
-/* ── v48: Tablet landscape — side by side ── */
 @media (min-width: 768px) and (max-width: 1279px) and (orientation: landscape) {
-  .tablet-landscape-split {
-    flex-direction: row !important;
-  }
+  .tablet-landscape-split { flex-direction: row !important; }
 }
 
-/* ── v48: Desktop ── */
+/* ── Desktop ── */
 @media (min-width: 1280px) {
   .mobile-only, .tablet-only { display: none !important; }
 }
 
-/* ── v49: Visibility throttle — when tab hidden, reduce animation ── */
+/* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   .live-dot, .badge-glow, .countdown-urgent,
   .flash-bid, .flash-ask, .slide-in-top {
@@ -345,16 +301,14 @@ button:focus-visible {
   }
 }
 
-/* ── v49: Tablet bottom sheet ── */
+/* ── Bottom sheet ── */
 .bottom-sheet {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
+  position: fixed; bottom: 0; left: 0; right: 0;
   background: rgba(16,19,28,1);
   border-top: 1px solid rgba(255,255,255,0.09);
   border-radius: 12px 12px 0 0;
   z-index: 100;
-  max-height: 80dvh;
-  overflow-y: auto;
+  max-height: 80dvh; overflow-y: auto;
   padding-bottom: max(var(--safe-bottom), 12px);
 }
 .bottom-sheet-handle {
@@ -370,50 +324,59 @@ button:focus-visible {
   z-index: 99;
 }
 
-/* ── v50: Performance — contain paint for panels ── */
+/* ── v84: GPU compositor layers — CEX-grade performance ── */
+
+/* OrderBook rows — own stacking context, avoids layout thrash on bids/asks update */
 .panel-contain {
   contain: layout style paint;
   will-change: transform;
 }
 
-/* ── v60: GPU layer hints ── */
-.orderbook-row {
-  transform: translateZ(0);
-  backface-visibility: hidden;
-}
-/* Chart container — promote to own compositor layer */
+/* Chart container — dedicated compositor layer */
 .chart-gpu {
   transform: translateZ(0);
   will-change: transform;
   contain: strict;
 }
-/* Trades list — own layer, frequent updates */
+
+/* Trades list — own layer, frequent DOM updates */
 .trades-gpu {
   transform: translateZ(0);
   contain: layout style paint;
 }
 
-/* ── v50: Chart fullscreen ── */
+/* v84: OrderBook row — translateZ(0) promotes to own layer
+   Prevents layout thrash when 100ms OB updates repaint rows */
+.orderbook-row {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  contain: layout style;
+}
+
+/* v84: Tablet panel contain */
+@media (min-width: 768px) {
+  [data-panel-id] { contain: layout style; }
+}
+
+/* Panel group resets */
+[data-resize-handle-active] ~ * { user-select: none !important; }
+[data-panel-group] { display: flex !important; }
+[data-panel-group][data-panel-group-direction="horizontal"] { flex-direction: row !important; }
+[data-panel-group][data-panel-group-direction="vertical"]   { flex-direction: column !important; }
+
+/* Chart fullscreen */
 .chart-fullscreen {
-  position: fixed !important;
-  inset: 0 !important;
+  position: fixed !important; inset: 0 !important;
   z-index: 200 !important;
   background: rgba(10,13,20,1) !important;
 }
 .chart-fullscreen-btn {
-  position: absolute;
-  top: 8px; right: 8px;
-  z-index: 201;
+  position: absolute; top: 8px; right: 8px; z-index: 201;
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 4px;
-  padding: 4px 8px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 9px;
-  font-weight: 700;
-  color: rgba(255,255,255,0.50);
-  letter-spacing: 0.06em;
+  border-radius: 4px; padding: 4px 8px; cursor: pointer;
+  font-family: inherit; font-size: 9px; font-weight: 700;
+  color: rgba(255,255,255,0.50); letter-spacing: 0.06em;
   transition: all 120ms;
 }
 .chart-fullscreen-btn:hover {
