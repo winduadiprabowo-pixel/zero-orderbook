@@ -190,8 +190,10 @@ async function fetchTickerRest(
       return { lastPrice: +d.lastPrice, priceChange: +d.priceChange, priceChangePercent: +d.priceChangePercent, highPrice: +d.highPrice, lowPrice: +d.lowPrice, volume: +d.volume, quoteVolume: +d.quoteVolume };
     }
     if (feed === 'okx') {
-      const instId = symbol.replace('USDT', '') + '-USDT-SWAP';
-      const r = await fetch(`https://www.okx.com/api/v5/market/ticker?instId=${instId}`, { signal });
+      // v86: route through CF proxy — consistent with Bybit/Binance, avoids region blocks
+      // CF Worker: /okx-api/* → https://www.okx.com/*
+      const instId = symbol.replace('USDT', '-USDT');
+      const r = await fetch(`${PROXY_REST}/okx-api/api/v5/market/ticker?instId=${instId}`, { signal });
       if (!r.ok) return null;
       const j = await r.json() as { data: Array<Record<string, string>> };
       if (!j.data?.length) return null;
