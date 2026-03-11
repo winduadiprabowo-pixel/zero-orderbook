@@ -1,4 +1,12 @@
+/**
+ * useMarketCap.ts — ZERØ ORDER BOOK v89
+ * v89: CoinGecko via CF Worker proxy — fix rate limit 429
+ * rgba() only ✓ · mountedRef ✓
+ */
 import { useState, useEffect, useRef } from 'react';
+
+const PROXY = (import.meta.env.VITE_PROXY_URL as string | undefined)
+  ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
 
 export function useMarketCap(coingeckoId: string) {
   const [marketCap, setMarketCap] = useState<number | null>(null);
@@ -11,8 +19,9 @@ export function useMarketCap(coingeckoId: string) {
 
     const fetch_ = async () => {
       try {
+        // v89: via proxy — bukan direct coingecko.com
         const res = await fetch(
-          `https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoId}&vs_currencies=usd&include_market_cap=true`,
+          `${PROXY}/coingecko/api/v3/simple/price?ids=${coingeckoId}&vs_currencies=usd&include_market_cap=true`,
           { signal: controller.signal }
         );
         if (!res.ok) throw new Error('fail');
