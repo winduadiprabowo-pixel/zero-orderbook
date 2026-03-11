@@ -6,10 +6,10 @@
  *   - Offline: serve cached shell
  */
 
-const CACHE_VERSION = 'zero-ob-v85';
+const CACHE_VERSION = 'zero-ob-v86';
 const SHELL_CACHE   = `${CACHE_VERSION}-shell`;
 
-// App shell assets to pre-cache
+// App shell assets to pre-cache — v86: include JS/CSS bundles
 const SHELL_ASSETS = [
   '/',
   '/index.html',
