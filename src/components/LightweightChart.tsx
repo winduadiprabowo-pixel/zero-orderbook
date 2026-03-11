@@ -698,9 +698,8 @@ const LightweightChart = memo(function LightweightChart({
       let bars: OHLCBar[] = [];
       const sym = symbol.replace('/', '').replace('-', '').toUpperCase();
 
-      if (exchange === 'bybit' || exchange === 'okx') {
-        // v85 FIX: route through CF proxy — avoids CORS block on Cloudflare Pages
-        // CF worker proxies /bybit-api/* → https://api.bybit.com/*
+      if (exchange === 'bybit') {
+        // Bybit kline via proxy
         const url = `${PROXY_REST}/bybit-api/v5/market/kline?category=spot&symbol=${sym}&interval=${BYBIT_TF[interval]}&limit=300`;
         const res = await fetch(url, { signal: ac.signal });
         const json = await res.json();
@@ -710,9 +709,21 @@ const LightweightChart = memo(function LightweightChart({
           low:    Number(c[3]), close: Number(c[4]),
           volume: Number(c[5]),
         }));
+      } else if (exchange === 'okx') {
+        // v86: OKX gets real OKX candles — instId format BTC-USDT
+        const OKX_TF: Record<Interval, string> = { '1m':'1m','5m':'5m','15m':'15m','1h':'1H','4h':'4H','1d':'1D' };
+        const instId = sym.replace('USDT', '-USDT');
+        const url = `${PROXY_REST}/okx-api/api/v5/market/candles?instId=${instId}&bar=${OKX_TF[interval]}&limit=300`;
+        const res = await fetch(url, { signal: ac.signal });
+        const json = await res.json();
+        bars = ((json?.data ?? []) as string[][]).reverse().map((c) => ({
+          time:   Math.floor(Number(c[0]) / 1000) as UTCTimestamp,
+          open:   Number(c[1]), high: Number(c[2]),
+          low:    Number(c[3]), close: Number(c[4]),
+          volume: Number(c[5]),
+        }));
       } else {
-        // v85 FIX: route through CF proxy — avoids CORS block on Cloudflare Pages
-        // CF worker proxies /api/* → https://api.binance.com/*
+        // Binance kline via proxy
         const url = `${PROXY_REST}/api/v3/klines?symbol=${sym}&interval=${BINANCE_TF[interval]}&limit=300`;
         const res = await fetch(url, { signal: ac.signal });
         const json = await res.json();
@@ -723,7 +734,6 @@ const LightweightChart = memo(function LightweightChart({
           volume: Number(c[5]),
         }));
       }
-
       if (!mountedRef.current || ac.signal.aborted || !bars.length) return;
 
       const newHash = `${bars.length}-${bars[bars.length - 1]?.close}`;
@@ -785,7 +795,7 @@ const LightweightChart = memo(function LightweightChart({
     canvas.style.cursor        = drawTool !== 'none' ? 'crosshair' : 'default';
     canvas.style.pointerEvents = drawTool !== 'none' ? 'auto' : 'none';
 
-    const pt = (e: MouseEvent): DrawPoint => {
+    const pt = (e: MouseEvent | Touch): DrawPoint => {
       const r = canvas.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
@@ -806,13 +816,41 @@ const LightweightChart = memo(function LightweightChart({
       activeDrawing.current = { tool: drawTool, p1: null, p2: null };
       renderDrawings(ctx, drawings.current, null, canvas.width, canvas.height);
     };
-    canvas.addEventListener('mousedown', onDown);
-    canvas.addEventListener('mousemove', onMove);
-    canvas.addEventListener('mouseup',   onUp);
+    // v86: touch events — drawing works on mobile
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      if (drawTool === 'none' || !e.touches[0]) return;
+      isDrawing.current     = true;
+      activeDrawing.current = { tool: drawTool, p1: pt(e.touches[0]), p2: pt(e.touches[0]) };
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      if (!isDrawing.current || !activeDrawing.current.p1 || !e.touches[0]) return;
+      activeDrawing.current.p2 = pt(e.touches[0]);
+      renderDrawings(ctx, drawings.current, activeDrawing.current, canvas.width, canvas.height);
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      if (!isDrawing.current || !activeDrawing.current.p1) return;
+      const touch = e.changedTouches[0];
+      isDrawing.current = false;
+      drawings.current.push({ tool: drawTool, p1: activeDrawing.current.p1!, p2: pt(touch) });
+      activeDrawing.current = { tool: drawTool, p1: null, p2: null };
+      renderDrawings(ctx, drawings.current, null, canvas.width, canvas.height);
+    };
+    canvas.addEventListener('mousedown',  onDown);
+    canvas.addEventListener('mousemove',  onMove);
+    canvas.addEventListener('mouseup',    onUp);
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
+    canvas.addEventListener('touchend',   onTouchEnd,   { passive: false });
     return () => {
-      canvas.removeEventListener('mousedown', onDown);
-      canvas.removeEventListener('mousemove', onMove);
-      canvas.removeEventListener('mouseup',   onUp);
+      canvas.removeEventListener('mousedown',  onDown);
+      canvas.removeEventListener('mousemove',  onMove);
+      canvas.removeEventListener('mouseup',    onUp);
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove',  onTouchMove);
+      canvas.removeEventListener('touchend',   onTouchEnd);
     };
   }, [drawTool]);
 
