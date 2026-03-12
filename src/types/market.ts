@@ -105,6 +105,7 @@ export interface SymbolInfo {
   sizeDec:       number;
   isFutures:     boolean;
   volume24h?:    number;
+  coingeckoId?:  string; // v90: untuk useMarketCap — fix MKT CAP N/A
 }
 
 // ─── Binance REST types ───────────────────────────────────────────────────────
@@ -122,18 +123,18 @@ export interface BinanceExchangeSymbol {
 // ─── Pinned / featured symbols (always shown as quick-access tabs) ────────────
 
 export const PINNED_SYMBOLS: readonly SymbolInfo[] = [
-  { symbol: 'btcusdt',   label: 'BTC/USDT',   base: 'BTC',   quote: 'USDT', futuresSymbol: 'BTCUSDT',   priceDec: 2, sizeDec: 5, isFutures: true },
-  { symbol: 'ethusdt',   label: 'ETH/USDT',   base: 'ETH',   quote: 'USDT', futuresSymbol: 'ETHUSDT',   priceDec: 2, sizeDec: 4, isFutures: true },
-  { symbol: 'solusdt',   label: 'SOL/USDT',   base: 'SOL',   quote: 'USDT', futuresSymbol: 'SOLUSDT',   priceDec: 3, sizeDec: 2, isFutures: true },
-  { symbol: 'bnbusdt',   label: 'BNB/USDT',   base: 'BNB',   quote: 'USDT', futuresSymbol: 'BNBUSDT',   priceDec: 2, sizeDec: 3, isFutures: true },
-  { symbol: 'xrpusdt',   label: 'XRP/USDT',   base: 'XRP',   quote: 'USDT', futuresSymbol: 'XRPUSDT',   priceDec: 4, sizeDec: 1, isFutures: true },
-  { symbol: 'adausdt',   label: 'ADA/USDT',   base: 'ADA',   quote: 'USDT', futuresSymbol: 'ADAUSDT',   priceDec: 4, sizeDec: 1, isFutures: true },
-  { symbol: 'avaxusdt',  label: 'AVAX/USDT',  base: 'AVAX',  quote: 'USDT', futuresSymbol: 'AVAXUSDT',  priceDec: 3, sizeDec: 2, isFutures: true },
-  { symbol: 'dogeusdt',  label: 'DOGE/USDT',  base: 'DOGE',  quote: 'USDT', futuresSymbol: 'DOGEUSDT',  priceDec: 5, sizeDec: 0, isFutures: true },
-  { symbol: 'shibusdt',  label: 'SHIB/USDT',  base: 'SHIB',  quote: 'USDT', futuresSymbol: 'SHIBUSDT',  priceDec: 8, sizeDec: 0, isFutures: true },
-  { symbol: 'pepeusdt',  label: 'PEPE/USDT',  base: 'PEPE',  quote: 'USDT', futuresSymbol: 'PEPEUSDT',  priceDec: 8, sizeDec: 0, isFutures: true },
-  { symbol: 'wifusdt',   label: 'WIF/USDT',   base: 'WIF',   quote: 'USDT', futuresSymbol: 'WIFUSDT',   priceDec: 4, sizeDec: 1, isFutures: true },
-  { symbol: 'trxusdt',   label: 'TRX/USDT',   base: 'TRX',   quote: 'USDT', futuresSymbol: 'TRXUSDT',   priceDec: 5, sizeDec: 1, isFutures: true },
+  { symbol: 'btcusdt',   label: 'BTC/USDT',   base: 'BTC',   quote: 'USDT', futuresSymbol: 'BTCUSDT',   priceDec: 2, sizeDec: 5, isFutures: true, coingeckoId: 'bitcoin' },
+  { symbol: 'ethusdt',   label: 'ETH/USDT',   base: 'ETH',   quote: 'USDT', futuresSymbol: 'ETHUSDT',   priceDec: 2, sizeDec: 4, isFutures: true, coingeckoId: 'ethereum' },
+  { symbol: 'solusdt',   label: 'SOL/USDT',   base: 'SOL',   quote: 'USDT', futuresSymbol: 'SOLUSDT',   priceDec: 3, sizeDec: 2, isFutures: true, coingeckoId: 'solana' },
+  { symbol: 'bnbusdt',   label: 'BNB/USDT',   base: 'BNB',   quote: 'USDT', futuresSymbol: 'BNBUSDT',   priceDec: 2, sizeDec: 3, isFutures: true, coingeckoId: 'binancecoin' },
+  { symbol: 'xrpusdt',   label: 'XRP/USDT',   base: 'XRP',   quote: 'USDT', futuresSymbol: 'XRPUSDT',   priceDec: 4, sizeDec: 1, isFutures: true, coingeckoId: 'ripple' },
+  { symbol: 'adausdt',   label: 'ADA/USDT',   base: 'ADA',   quote: 'USDT', futuresSymbol: 'ADAUSDT',   priceDec: 4, sizeDec: 1, isFutures: true, coingeckoId: 'cardano' },
+  { symbol: 'avaxusdt',  label: 'AVAX/USDT',  base: 'AVAX',  quote: 'USDT', futuresSymbol: 'AVAXUSDT',  priceDec: 3, sizeDec: 2, isFutures: true, coingeckoId: 'avalanche-2' },
+  { symbol: 'dogeusdt',  label: 'DOGE/USDT',  base: 'DOGE',  quote: 'USDT', futuresSymbol: 'DOGEUSDT',  priceDec: 5, sizeDec: 0, isFutures: true, coingeckoId: 'dogecoin' },
+  { symbol: 'shibusdt',  label: 'SHIB/USDT',  base: 'SHIB',  quote: 'USDT', futuresSymbol: 'SHIBUSDT',  priceDec: 8, sizeDec: 0, isFutures: true, coingeckoId: 'shiba-inu' },
+  { symbol: 'pepeusdt',  label: 'PEPE/USDT',  base: 'PEPE',  quote: 'USDT', futuresSymbol: 'PEPEUSDT',  priceDec: 8, sizeDec: 0, isFutures: true, coingeckoId: 'pepe' },
+  { symbol: 'wifusdt',   label: 'WIF/USDT',   base: 'WIF',   quote: 'USDT', futuresSymbol: 'WIFUSDT',   priceDec: 4, sizeDec: 1, isFutures: true, coingeckoId: 'dogwifcoin' },
+  { symbol: 'trxusdt',   label: 'TRX/USDT',   base: 'TRX',   quote: 'USDT', futuresSymbol: 'TRXUSDT',   priceDec: 5, sizeDec: 1, isFutures: true, coingeckoId: 'tron' },
 ] as const;
 
 // ─── Smart precision from live price ─────────────────────────────────────────
