@@ -38,7 +38,8 @@ const PROXY_WS = import.meta.env.VITE_PROXY_URL
 export function getWsUrl(exchange: ExchangeId, _symbol: string): string {
   switch (exchange) {
     case 'bybit':
-      return `${PROXY_WS}/bybit/linear`;
+      // v88: DIRECT — Bybit blocks CF datacenter IPs, must bypass proxy
+      return 'wss://stream.bybit.com/v5/public/linear';
     case 'binance':
       return `${PROXY_WS}/ws/stream`;
     case 'okx':
