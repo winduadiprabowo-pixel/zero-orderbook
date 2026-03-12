@@ -1,8 +1,6 @@
 /**
- * useGlobalStats.ts — ZERØ ORDER BOOK v89
- * v89: CoinGecko + FNG via CF Worker proxy — fix $0 MKT CAP / BTC.D bug
- * Direct coingecko.com dari browser kena rate limit 429 → semua stats kosong
- * Sekarang semua lewat proxy + CF edge cache 60s → zero 429
+ * useGlobalStats.ts — ZERØ ORDER BOOK
+ * Global crypto market stats from CoinGecko + Fear & Greed index.
  * React Query with staleTime caching. mountedRef pattern.
  */
 
@@ -10,12 +8,8 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { GlobalStats } from '@/types/market';
 
-const PROXY = (import.meta.env.VITE_PROXY_URL as string | undefined)
-  ?? 'https://zero-orderbook-proxy.winduadiprabowo.workers.dev';
-
-// v89: lewat CF proxy — bukan direct coingecko.com
-const CG_GLOBAL = `${PROXY}/coingecko/api/v3/global`;
-const FNG_URL   = `${PROXY}/fng/fng/?limit=1`;
+const CG_GLOBAL  = 'https://api.coingecko.com/api/v3/global';
+const FNG_URL    = 'https://api.alternative.me/fng/?limit=1';
 const REFRESH_MS = 60_000;
 
 function safeNum(v: unknown): number {
