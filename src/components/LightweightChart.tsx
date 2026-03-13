@@ -28,6 +28,7 @@ import {
   ISeriesApi,
   CandlestickData,
   LineData,
+  HistogramData,
   UTCTimestamp,
   CrosshairMode,
   LineStyle,
@@ -252,8 +253,8 @@ interface ToolbarProps {
 }
 
 const btn = (active: boolean): React.CSSProperties => ({
-  background:  active ? 'rgba(242,142,44,0.14)' : 'transparent',
-  color:       active ? 'rgba(242,142,44,1)'    : 'rgba(255,255,255,0.30)',
+  background:  active ? 'rgba(0,185,255,0.14)' : 'transparent',
+  color:       active ? 'rgba(0,185,255,1)'    : 'rgba(255,255,255,0.30)',
   border:      'none', cursor: 'pointer',
   fontFamily:  'IBM Plex Mono, monospace',
   fontSize:    '10px', fontWeight: 700,
@@ -290,13 +291,13 @@ const CandleCountdown = memo(function CandleCountdown({ interval }: { interval: 
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 7px',
-      background: isUrgent ? 'rgba(242,142,44,0.12)' : 'rgba(255,255,255,0.04)',
-      border: '1px solid ' + (isUrgent ? 'rgba(242,142,44,0.35)' : 'rgba(255,255,255,0.07)'),
+      background: isUrgent ? 'rgba(0,185,255,0.12)' : 'rgba(255,255,255,0.04)',
+      border: '1px solid ' + (isUrgent ? 'rgba(0,185,255,0.35)' : 'rgba(255,255,255,0.07)'),
       borderRadius: '3px', flexShrink: 0,
     }}>
       <span style={{
         fontSize: '10px', fontWeight: 800,
-        color: isUrgent ? 'rgba(242,142,44,1)' : 'rgba(255,255,255,0.55)',
+        color: isUrgent ? 'rgba(0,185,255,1)' : 'rgba(255,255,255,0.55)',
         letterSpacing: '0.04em', minWidth: '28px',
         fontFamily: 'IBM Plex Mono, monospace',
       }}>
@@ -357,7 +358,7 @@ const Toolbar = memo(function Toolbar({
           <span>fx</span>
           {indicators.size > 0 && (
             <span style={{
-              background: 'rgba(242,142,44,0.8)', color: 'rgba(0,0,0,1)',
+              background: 'rgba(0,185,255,0.8)', color: 'rgba(0,0,0,1)',
               borderRadius: '9px', padding: '0 4px', fontSize: '9px', lineHeight: '13px',
             }}>
               {indicators.size}
@@ -408,7 +409,7 @@ const MobileStatsStrip = memo(function MobileStatsStrip({
 }: { ticker: TickerData; symbolInfo: SymbolInfo }) {
   MobileStatsStrip.displayName = 'MobileStatsStrip';
   const isUp       = ticker.priceChangePercent >= 0;
-  const priceColor = isUp ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
+  const priceColor = isUp ? 'rgba(0,205,115,1)' : 'rgba(255,60,82,1)';
   const dec        = Math.min(symbolInfo.priceDec ?? 2, 6);
   const priceStr   = ticker.lastPrice.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
   const changeStr  = (isUp ? '+' : '') + ticker.priceChangePercent.toFixed(2) + '%';
@@ -425,7 +426,7 @@ const MobileStatsStrip = memo(function MobileStatsStrip({
         </span>
         <span style={{
           fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '4px',
-          background: isUp ? 'rgba(38,166,154,0.12)' : 'rgba(239,83,80,0.12)',
+          background: isUp ? 'rgba(0,205,115,0.12)' : 'rgba(255,60,82,0.12)',
           color: priceColor,
         }}>
           {changeStr}
@@ -433,8 +434,8 @@ const MobileStatsStrip = memo(function MobileStatsStrip({
       </div>
       <div style={{ display: 'flex', gap: '0', borderTop: '1px solid rgba(255,255,255,0.045)', paddingTop: '5px' }}>
         {[
-          { label: '24h High', val: ticker.highPrice.toLocaleString('en-US', { maximumFractionDigits: dec }), color: 'rgba(38,166,154,0.85)' },
-          { label: '24h Low',  val: ticker.lowPrice.toLocaleString('en-US',  { maximumFractionDigits: dec }), color: 'rgba(239,83,80,0.85)'  },
+          { label: '24h High', val: ticker.highPrice.toLocaleString('en-US', { maximumFractionDigits: dec }), color: 'rgba(0,205,115,0.85)' },
+          { label: '24h Low',  val: ticker.lowPrice.toLocaleString('en-US',  { maximumFractionDigits: dec }), color: 'rgba(255,60,82,0.85)'  },
           { label: 'Volume($)',val: volStr, color: 'rgba(255,255,255,0.65)' },
         ].map(({ label, val, color }) => (
           <div key={label} style={{ flex: 1 }}>
@@ -467,6 +468,7 @@ const LightweightChart = memo(function LightweightChart({
   const canvasRef       = useRef<HTMLCanvasElement>(null);
   const chartRef        = useRef<IChartApi | null>(null);
   const mainSeriesRef   = useRef<ISeriesApi<'Candlestick' | 'Bar' | 'Line' | 'Area'> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const indSeriesMap    = useRef<IndSeriesMap>(new Map()); // key → series[]
   const hoveredLineRef  = useRef<ISeriesApi<'Line'> | null>(null);
   const mountedRef      = useRef(true);
@@ -504,32 +506,54 @@ const LightweightChart = memo(function LightweightChart({
         vertLines: { color: 'rgba(255,255,255,0.03)' },
         horzLines: { color: 'rgba(255,255,255,0.03)' },
       },
-      crosshair:       { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: 'rgba(255,255,255,0.05)' },
-      timeScale: {
-        borderColor:    'rgba(255,255,255,0.05)',
-        timeVisible:    true,
-        secondsVisible: false,
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: { color: 'rgba(0,185,255,0.3)', width: 1, style: LineStyle.Dashed, labelBackgroundColor: 'rgba(0,185,255,0.8)' },
+        horzLine: { color: 'rgba(0,185,255,0.3)', width: 1, style: LineStyle.Dashed, labelBackgroundColor: 'rgba(0,185,255,0.8)' },
       },
+      rightPriceScale: {
+        borderColor:    'rgba(255,255,255,0.05)',
+        scaleMargins:   { top: 0.08, bottom: 0.20 }, // bottom 20% reserved for volume
+      },
+      timeScale: {
+        borderColor:               'rgba(255,255,255,0.05)',
+        timeVisible:               true,
+        secondsVisible:            true,  // presisi detik — padet realtime
+        fixLeftEdge:               true,
+        lockVisibleTimeRangeOnResize: true,
+      },
+      handleScroll: { vertTouchDrag: true, horzTouchDrag: true, mouseWheel: true, pressedMouseMove: true },
+      handleScale:  { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
     });
     chartRef.current = chart;
 
     // FIX v83: buildMainSeries immediately after chart is ready — guaranteed order
     if (chartTypeRef.current === 'candle') {
       mainSeriesRef.current = chart.addCandlestickSeries({
-        upColor: 'rgba(38,166,154,1)', downColor: 'rgba(239,83,80,1)',
+        upColor: 'rgba(0,205,115,1)', downColor: 'rgba(255,60,82,1)',
         borderVisible: false,
-        wickUpColor: 'rgba(38,166,154,0.75)', wickDownColor: 'rgba(239,83,80,0.75)',
+        wickUpColor: 'rgba(0,205,115,0.75)', wickDownColor: 'rgba(255,60,82,0.75)',
       });
     } else if (chartTypeRef.current === 'bar') {
-      mainSeriesRef.current = chart.addBarSeries({ upColor: 'rgba(38,166,154,1)', downColor: 'rgba(239,83,80,1)' });
+      mainSeriesRef.current = chart.addBarSeries({ upColor: 'rgba(0,205,115,1)', downColor: 'rgba(255,60,82,1)' });
     } else if (chartTypeRef.current === 'line') {
       mainSeriesRef.current = chart.addLineSeries({ color: 'rgba(80,160,255,0.9)', lineWidth: 2, priceLineVisible: false });
     } else {
       mainSeriesRef.current = chart.addAreaSeries({ lineColor: 'rgba(80,160,255,0.9)', topColor: 'rgba(80,160,255,0.25)', bottomColor: 'rgba(80,160,255,0)', lineWidth: 2, priceLineVisible: false });
     }
 
+    // Volume histogram — always on, overlaid at bottom 20% of chart
+    volumeSeriesRef.current = chart.addHistogramSeries({
+      priceFormat:  { type: 'volume' },
+      priceScaleId: 'volume',
+    });
+    chart.priceScale('volume').applyOptions({
+      scaleMargins: { top: 0.82, bottom: 0 },
+      borderVisible: false,
+    });
+
     return () => {
+      volumeSeriesRef.current = null;
       mainSeriesRef.current = null;
       chart.remove();
       chartRef.current = null;
@@ -658,12 +682,12 @@ const LightweightChart = memo(function LightweightChart({
     }
     if (type === 'candle') {
       mainSeriesRef.current = chart.addCandlestickSeries({
-        upColor: 'rgba(38,166,154,1)', downColor: 'rgba(239,83,80,1)',
+        upColor: 'rgba(0,205,115,1)', downColor: 'rgba(255,60,82,1)',
         borderVisible: false,
-        wickUpColor: 'rgba(38,166,154,0.75)', wickDownColor: 'rgba(239,83,80,0.75)',
+        wickUpColor: 'rgba(0,205,115,0.75)', wickDownColor: 'rgba(255,60,82,0.75)',
       });
     } else if (type === 'bar') {
-      mainSeriesRef.current = chart.addBarSeries({ upColor: 'rgba(38,166,154,1)', downColor: 'rgba(239,83,80,1)' });
+      mainSeriesRef.current = chart.addBarSeries({ upColor: 'rgba(0,205,115,1)', downColor: 'rgba(255,60,82,1)' });
     } else if (type === 'line') {
       mainSeriesRef.current = chart.addLineSeries({ color: 'rgba(80,160,255,0.9)', lineWidth: 2, priceLineVisible: false });
     } else {
@@ -756,6 +780,16 @@ const LightweightChart = memo(function LightweightChart({
           (mainSeriesRef.current as ISeriesApi<'Line'>).setData(bars.map(b => ({ time: b.time, value: b.close })));
         } else {
           (mainSeriesRef.current as ISeriesApi<'Candlestick'>).setData(bars as CandlestickData[]);
+        }
+        // Volume histogram
+        if (volumeSeriesRef.current) {
+          volumeSeriesRef.current.setData(bars.map(b => ({
+            time:  b.time,
+            value: b.volume ?? 0,
+            color: (b.close >= b.open)
+              ? 'rgba(0,205,115,0.35)'
+              : 'rgba(255,60,82,0.35)',
+          } as HistogramData)));
         }
         applyIndicators(bars, indicatorsRef.current);
         chartRef.current?.timeScale().fitContent();
@@ -930,6 +964,16 @@ const LightweightChart = memo(function LightweightChart({
           (mainSeriesRef.current as ISeriesApi<'Line'>).update({ time: updated.time, value: updated.close });
         } else {
           (mainSeriesRef.current as ISeriesApi<'Candlestick'>).update(updated as CandlestickData);
+        }
+        // Volume real-time update
+        if (volumeSeriesRef.current) {
+          volumeSeriesRef.current.update({
+            time:  updated.time,
+            value: updated.volume ?? 0,
+            color: (updated.close >= updated.open)
+              ? 'rgba(0,205,115,0.35)'
+              : 'rgba(255,60,82,0.35)',
+          } as HistogramData);
         }
 
       } catch { /* malformed frame */ }
