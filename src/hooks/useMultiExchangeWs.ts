@@ -671,6 +671,19 @@ export function useMultiExchangeWs(
       : { ...EMPTY_STATE, activeFeed: exchange },
     );
 
+    // v96: REST ticker fetch PARALEL dari awal — tidak nunggu WS open
+    // Ticker muncul di UI lebih cepat, splash bisa hilang lebih cepat
+    if (restAbortRef.current) restAbortRef.current.abort();
+    restAbortRef.current = new AbortController();
+    const earlyAbort = restAbortRef.current;
+    fetchTickerRest(exchange, symbol, earlyAbort.signal).then(ticker => {
+      if (!mountedRef.current || earlyAbort.signal.aborted || !ticker) return;
+      setState(prev => {
+        if (prev.ticker?.lastPrice && prev.ticker.lastPrice > 0) return prev;
+        return { ...prev, ticker };
+      });
+    });
+
     connect();
 
     const onVisible = () => {
