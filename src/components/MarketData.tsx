@@ -23,16 +23,16 @@ const MarketData: React.FC<MarketDataProps> = React.memo(({ ticker, symbolInfo }
 
   const changeColor = useMemo(() => {
     if (!ticker) return 'rgba(255,255,255,0.55)';
-    return ticker.priceChangePercent >= 0 ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
+    return ticker.priceChangePercent >= 0 ? 'rgba(0,205,115,1)' : 'rgba(255,60,82,1)';
   }, [ticker]);
 
   const lsrColor = useMemo(() => {
     if (!futures) return 'rgba(255,255,255,0.55)';
-    return futures.longShortRatio >= 1 ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
+    return futures.longShortRatio >= 1 ? 'rgba(0,205,115,1)' : 'rgba(255,60,82,1)';
   }, [futures]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', background: 'rgba(16,19,28,1)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', background: 'rgba(11,14,22,1)' }}>
 
       {/* 24H Stats */}
       <Section title="24H Stats">
@@ -51,11 +51,11 @@ const MarketData: React.FC<MarketDataProps> = React.memo(({ ticker, symbolInfo }
             />
             <DataRow label="High"
               value={ticker.highPrice.toLocaleString('en-US', { maximumFractionDigits: 4 })}
-              color="rgba(38,166,154,1)"
+              color="rgba(0,205,115,1)"
             />
             <DataRow label="Low"
               value={ticker.lowPrice.toLocaleString('en-US', { maximumFractionDigits: 4 })}
-              color="rgba(239,83,80,1)"
+              color="rgba(255,60,82,1)"
             />
             <DataRow label="Volume"
               value={formatCompact(ticker.quoteVolume)}
@@ -79,7 +79,7 @@ const MarketData: React.FC<MarketDataProps> = React.memo(({ ticker, symbolInfo }
             />
             <DataRow label="Funding"
               value={formatFundingRate(futures.fundingRate)}
-              color={futures.fundingRate >= 0 ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)'}
+              color={futures.fundingRate >= 0 ? 'rgba(0,205,115,1)' : 'rgba(255,60,82,1)'}
             />
             <DataRow label="Open Int."
               value={futures.openInterestUsd > 0
@@ -94,24 +94,24 @@ const MarketData: React.FC<MarketDataProps> = React.memo(({ ticker, symbolInfo }
                 display: 'flex', justifyContent: 'space-between', marginBottom: '4px',
               }}>
                 <span style={{
-                  fontSize: '9px', fontWeight: 700, color: 'rgba(38,166,154,1)',
+                  fontSize: '9px', fontWeight: 700, color: 'rgba(0,205,115,1)',
                 }}>
                   L {formatPct(futures.longPct, 1)}
                 </span>
                 <span className="label-xs">L/S RATIO</span>
                 <span style={{
-                  fontSize: '9px', fontWeight: 700, color: 'rgba(239,83,80,1)',
+                  fontSize: '9px', fontWeight: 700, color: 'rgba(255,60,82,1)',
                 }}>
                   S {formatPct(futures.shortPct, 1)}
                 </span>
               </div>
               <div style={{
                 height: '4px', borderRadius: '2px',
-                background: 'rgba(239,83,80,0.20)', overflow: 'hidden',
+                background: 'rgba(255,60,82,0.20)', overflow: 'hidden',
               }}>
                 <div style={{
                   height: '100%', width: `${futures.longPct}%`,
-                  background: 'rgba(38,166,154,1)',
+                  background: 'rgba(0,205,115,1)',
                   borderRadius: '2px', transition: 'width 300ms',
                 }} />
               </div>
