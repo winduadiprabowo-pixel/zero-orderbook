@@ -147,7 +147,7 @@ const DepthChart: React.FC<DepthChartProps> = React.memo(({ bids, asks, midPrice
     return <SkeletonDepth />;
   }
 
-  const tooltipColor = tooltip?.side === 'bid' ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
+  const tooltipColor = tooltip?.side === 'bid' ? 'rgba(0,205,115,1)' : 'rgba(255,60,82,1)';
   const tooltipW     = 160;
   const tooltipH     = 38;
 
@@ -163,12 +163,12 @@ const DepthChart: React.FC<DepthChartProps> = React.memo(({ bids, asks, midPrice
         {/* Gradient defs */}
         <defs>
           <linearGradient id="bidGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="rgba(38,166,154,0.18)" />
-            <stop offset="100%" stopColor="rgba(38,166,154,0.02)" />
+            <stop offset="0%"   stopColor="rgba(0,205,115,0.18)" />
+            <stop offset="100%" stopColor="rgba(0,205,115,0.02)" />
           </linearGradient>
           <linearGradient id="askGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="rgba(239,83,80,0.18)" />
-            <stop offset="100%" stopColor="rgba(239,83,80,0.02)" />
+            <stop offset="0%"   stopColor="rgba(255,60,82,0.18)" />
+            <stop offset="100%" stopColor="rgba(255,60,82,0.02)" />
           </linearGradient>
         </defs>
 
@@ -185,11 +185,11 @@ const DepthChart: React.FC<DepthChartProps> = React.memo(({ bids, asks, midPrice
 
         {/* Bid fill + line */}
         <path d={bidFillPath} fill="url(#bidGrad)" />
-        <path d={bidLinePath} fill="none" stroke="rgba(38,166,154,0.9)" strokeWidth="1.5" />
+        <path d={bidLinePath} fill="none" stroke="rgba(0,205,115,0.9)" strokeWidth="1.5" />
 
         {/* Ask fill + line */}
         <path d={askFillPath} fill="url(#askGrad)" />
-        <path d={askLinePath} fill="none" stroke="rgba(239,83,80,0.9)" strokeWidth="1.5" />
+        <path d={askLinePath} fill="none" stroke="rgba(255,60,82,0.9)" strokeWidth="1.5" />
 
         {/* Mid price line */}
         {midPrice && (
