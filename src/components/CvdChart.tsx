@@ -83,10 +83,10 @@ const CvdChart: React.FC<CvdChartProps> = React.memo(({ points }) => {
     };
   }, [points, dims]);
 
-  const lineColor = isPositive ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)';
+  const lineColor = isPositive ? 'rgba(0,205,115,1)' : 'rgba(255,60,82,1)';
   const fillId    = isPositive ? 'cvdFillPos' : 'cvdFillNeg';
-  const fillColorA = isPositive ? 'rgba(38,166,154,0.22)' : 'rgba(239,83,80,0.22)';
-  const fillColorB = isPositive ? 'rgba(38,166,154,0.01)' : 'rgba(239,83,80,0.01)';
+  const fillColorA = isPositive ? 'rgba(0,205,115,0.22)' : 'rgba(255,60,82,0.22)';
+  const fillColorB = isPositive ? 'rgba(0,205,115,0.01)' : 'rgba(255,60,82,0.01)';
 
   const lastCvdLabel = lastCvd > 1000
     ? (lastCvd / 1000).toFixed(1) + 'K'
@@ -115,7 +115,7 @@ const CvdChart: React.FC<CvdChartProps> = React.memo(({ points }) => {
           {points.length > 1 && (
             <span style={{
               fontSize: '9px', fontWeight: 700,
-              color: isPositive ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)',
+              color: isPositive ? 'rgba(0,205,115,1)' : 'rgba(255,60,82,1)',
               letterSpacing: '0.04em',
             }}>
               {isPositive ? '▲' : '▼'} {sparkLabel}
@@ -123,7 +123,7 @@ const CvdChart: React.FC<CvdChartProps> = React.memo(({ points }) => {
           )}
           <span className="mono-num" style={{
             fontSize: '10px', fontWeight: 800,
-            color: isPositive ? 'rgba(38,166,154,1)' : 'rgba(239,83,80,1)',
+            color: isPositive ? 'rgba(0,205,115,1)' : 'rgba(255,60,82,1)',
           }}>
             {points.length > 0 ? lastCvdLabel : '—'}
           </span>
