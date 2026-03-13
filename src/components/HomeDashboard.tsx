@@ -296,7 +296,7 @@ const OnboardingOverlay = memo(({ onDone }: { onDone: () => void }) => {
     >
       {/* Header — logo + brand */}
       <div style={{ marginBottom: 32, textAlign: 'center' as const }}>
-        <svg width="52" height="52" viewBox="0 0 32 32" style={{ marginBottom: 6 }}>
+        <svg width="52" height="52" viewBox="0 0 32 32" style={{ marginBottom: 6, transform: 'scaleX(-1)' }}>
           <rect width="32" height="32" rx="6" fill="rgba(13,16,23,1)" />
           {/* v87: no flip — path already correct orientation */}
           <g transform="translate(-7.099,-8.713) scale(0.08408)">
@@ -1020,9 +1020,10 @@ const HomeDashboard = memo(({
             <section style={{ padding: '14px 16px 4px' }}>
               <SectionTitle label="Crypto News" />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {news.map(item => {
+                {news.map((item, idx) => {
                   const ago = Math.floor((Date.now() - item.published) / 60000);
                   const agoStr = ago < 60 ? `${ago}m ago` : ago < 1440 ? `${Math.floor(ago/60)}h ago` : `${Math.floor(ago/1440)}d ago`;
+                  const isFeatured = idx === 0; // first item gets bigger thumbnail
                   return (
                     <a
                       key={item.id}
@@ -1030,31 +1031,69 @@ const HomeDashboard = memo(({
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{
-                        display: 'flex', gap: 10, alignItems: 'center',
-                        background: COLORS.panel, border: `1px solid ${COLORS.border}`,
-                        borderRadius: 12, padding: '10px 12px',
-                        textDecoration: 'none', WebkitTapHighlightColor: 'transparent',
+                        display: 'flex',
+                        flexDirection: isFeatured ? 'column' : 'row',
+                        gap: isFeatured ? 0 : 10,
+                        alignItems: isFeatured ? 'stretch' : 'center',
+                        background: COLORS.panel,
+                        border: `1px solid ${COLORS.border}`,
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                        textDecoration: 'none',
+                        WebkitTapHighlightColor: 'transparent',
                       }}
                     >
-                      {item.imageurl ? (
-                        <img
-                          src={item.imageurl}
-                          alt=""
-                          style={{ width: 54, height: 54, borderRadius: 8, objectFit: 'cover', flexShrink: 0, background: COLORS.panel2 }}
-                          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
+                      {/* Featured: full-width image on top */}
+                      {isFeatured ? (
+                        <>
+                          {item.imageurl ? (
+                            <img
+                              src={item.imageurl}
+                              alt=""
+                              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block', background: COLORS.panel2 }}
+                              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div style={{ width: '100%', height: 140, background: COLORS.panel2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>📰</div>
+                          )}
+                          <div style={{ padding: '10px 12px 12px' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.text, lineHeight: 1.5, marginBottom: 6 }}>
+                              {item.title}
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                              <span style={{ fontSize: 9, color: COLORS.gold, fontWeight: 700 }}>{item.source}</span>
+                              <span style={{ width: 2, height: 2, borderRadius: '50%', background: COLORS.muted, display: 'inline-block' }} />
+                              <span style={{ fontSize: 9, color: COLORS.muted }}>{agoStr}</span>
+                            </div>
+                          </div>
+                        </>
                       ) : (
-                        <div style={{ width: 54, height: 54, borderRadius: 8, background: COLORS.panel2, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📰</div>
+                        /* Non-featured: thumbnail left, text right */
+                        <>
+                          <div style={{ padding: '10px 0 10px 12px', flexShrink: 0 }}>
+                            {item.imageurl ? (
+                              <img
+                                src={item.imageurl}
+                                alt=""
+                                style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'cover', display: 'block', background: COLORS.panel2 }}
+                                onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                              />
+                            ) : (
+                              <div style={{ width: 60, height: 60, borderRadius: 8, background: COLORS.panel2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>📰</div>
+                            )}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0, padding: '10px 12px 10px 0' }}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: COLORS.text, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden', marginBottom: 5 }}>
+                              {item.title}
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                              <span style={{ fontSize: 9, color: COLORS.gold, fontWeight: 700 }}>{item.source}</span>
+                              <span style={{ width: 2, height: 2, borderRadius: '50%', background: COLORS.muted, display: 'inline-block' }} />
+                              <span style={{ fontSize: 9, color: COLORS.muted }}>{agoStr}</span>
+                            </div>
+                          </div>
+                        </>
                       )}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: COLORS.text, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden', marginBottom: 5 }}>
-                          {item.title}
-                        </div>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                          <span style={{ fontSize: 9, color: COLORS.gold, fontWeight: 700 }}>{item.source}</span>
-                          <span style={{ fontSize: 9, color: COLORS.muted }}>{agoStr}</span>
-                        </div>
-                      </div>
                     </a>
                   );
                 })}
