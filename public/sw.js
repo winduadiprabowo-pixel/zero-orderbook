@@ -1,4 +1,4 @@
-const CACHE_NAME = 'zero-v88';
+const CACHE_NAME = 'zero-v89';
 const ASSETS = ['/','./index.html'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));
