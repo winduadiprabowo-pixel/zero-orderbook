@@ -25,7 +25,7 @@ const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ trades }) => {
   }, [display]);
 
   return (
-    <div className="trades-gpu" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(14,17,26,1)' }}>
+    <div className="trades-gpu" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(11,14,22,1)' }}>
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
