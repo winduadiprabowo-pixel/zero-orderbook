@@ -182,8 +182,8 @@ const MobileTabBtn: React.FC<{
       border: 'none', cursor: 'pointer',
       fontFamily: 'inherit', minHeight: '56px',
       background: 'transparent',
-      color: active ? 'rgba(242,162,33,1)' : 'rgba(255,255,255,0.32)',
-      borderTop: active ? '2px solid rgba(242,162,33,1)' : '2px solid transparent',
+      color: active ? 'rgba(0,185,255,1)' : 'rgba(255,255,255,0.28)',
+      borderTop: active ? '2px solid rgba(0,185,255,1)' : '2px solid transparent',
       transition: 'color 100ms',
       WebkitTapHighlightColor: 'transparent',
       position: 'relative',
@@ -230,9 +230,9 @@ const MoreSheet: React.FC<{
           style={{
             display: 'flex', alignItems: 'center', gap: 14,
             width: '100%', padding: '14px 12px',
-            background: activeTab === t.id ? 'rgba(242,162,33,0.08)' : 'transparent',
+            background: activeTab === t.id ? 'rgba(0,185,255,0.08)' : 'transparent',
             border: 'none', borderRadius: 10, cursor: 'pointer',
-            color: activeTab === t.id ? 'rgba(242,162,33,1)' : 'rgba(255,255,255,0.75)',
+            color: activeTab === t.id ? 'rgba(0,185,255,1)' : 'rgba(255,255,255,0.75)',
             fontFamily: 'inherit', fontSize: 14, fontWeight: 600,
             WebkitTapHighlightColor: 'transparent',
             marginBottom: 4,
@@ -295,7 +295,7 @@ const PanelHeader: React.FC<{ title: string; right?: React.ReactNode }> = React.
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)',
-      background: 'rgba(16,19,28,1)', flexShrink: 0,
+      background: 'rgba(9,11,18,1)', flexShrink: 0, borderLeft: '2px solid rgba(0,185,255,0.30)',
     }}>
       <span className="label-sm">{title}</span>
       {right}
@@ -508,7 +508,7 @@ const MobileMarketList: React.FC<{
       <div style={{
         padding: '12px 14px 10px',
         flexShrink: 0,
-        background: 'rgba(10,11,20,1)',
+        background: 'rgba(7,9,16,1)',
       }}>
         <div style={{ position: 'relative' }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{
@@ -885,7 +885,7 @@ const Index: React.FC = () => {
   }, [handleOpenProModal]);
 
   const P: React.CSSProperties = {
-    background: 'rgba(16,19,28,1)',
+    background: 'rgba(11,14,22,1)',
     display: 'flex', flexDirection: 'column',
     overflow: 'hidden', height: '100%',
   };
@@ -954,7 +954,7 @@ const Index: React.FC = () => {
       className="scanline-overlay"
       style={{
         display: 'flex', flexDirection: 'column',
-        height: '100dvh', background: 'rgba(13,16,23,1)',
+        height: '100dvh', background: 'rgba(8,10,18,1)',
         overflow: 'hidden',
       }}
     >
@@ -1114,7 +1114,7 @@ const Index: React.FC = () => {
             style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
             <div style={{
               display: 'flex',
-              background: 'rgba(16,19,28,1)',
+              background: 'rgba(11,14,22,1)',
               borderBottom: '1px solid rgba(255,255,255,0.06)',
               flexShrink: 0,
             }}>
@@ -1127,8 +1127,8 @@ const Index: React.FC = () => {
                     fontFamily: 'inherit', fontSize: '9px', fontWeight: 700,
                     letterSpacing: '0.08em', textTransform: 'uppercase' as const,
                     background: 'transparent',
-                    color: tabletBottom === t.id ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.28)',
-                    borderBottom: tabletBottom === t.id ? '2px solid rgba(242,142,44,1)' : '2px solid transparent',
+                    color: tabletBottom === t.id ? 'rgba(0,185,255,1)' : 'rgba(255,255,255,0.28)',
+                    borderBottom: tabletBottom === t.id ? '2px solid rgba(0,185,255,1)' : '2px solid transparent',
                     transition: 'all 120ms',
                     WebkitTapHighlightColor: 'transparent',
                   }}
@@ -1210,7 +1210,7 @@ const Index: React.FC = () => {
         <div style={{
           display: 'flex',
           borderTop: '1px solid rgba(255,255,255,0.08)',
-          background: 'rgba(10,11,20,1)',
+          background: 'rgba(7,9,16,1)',
           paddingBottom: 'max(env(safe-area-inset-bottom), 4px)',
           flexShrink: 0,
         }} className="mobile-nav-bar">
