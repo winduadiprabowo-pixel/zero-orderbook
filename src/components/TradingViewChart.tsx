@@ -202,6 +202,7 @@ const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
     containerRef.current.appendChild(wrapper);
     widgetRef.current = wrapper;
 
+    // v94: Advanced Chart — drawing tools lengkap, zoom netep, scroll bebas
     const config = {
       autosize:             true,
       symbol:               tvSymbol,
@@ -213,7 +214,7 @@ const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
       toolbar_bg:           '#0a0d14',
       enable_publishing:    false,
       hide_top_toolbar:     false,
-      hide_side_toolbar:    false,
+      hide_side_toolbar:    false,   // drawing tools sidebar tampil
       allow_symbol_change:  false,
       hide_legend:          false,
       save_image:           true,
@@ -221,7 +222,20 @@ const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
       container_id:         inner.id,
       backgroundColor:      'rgba(10,13,20,1)',
       gridColor:            'rgba(255,255,255,0.03)',
-      // v92: hapus scroll_to_realtime — user bisa scroll bebas ke history
+      // zoom & scroll netep — tidak auto-reset
+      disabled_features:    [
+        'header_symbol_search',
+        'header_compare',
+        'display_market_status',
+        'header_undo_redo',
+      ],
+      enabled_features:     [
+        'study_templates',
+        'side_toolbar_in_fullscreen_mode',
+        'chart_zoom',
+        'scroll_past_end',
+        'create_volume_indicator_by_default',
+      ],
       studies:              ['Volume@tv-basicstudies'],
       overrides: {
         'mainSeriesProperties.candleStyle.upColor':            'rgba(38,166,154,1)',
