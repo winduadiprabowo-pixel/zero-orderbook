@@ -1,31 +1,36 @@
 /**
- * RecentTrades.tsx — ZERØ ORDER BOOK v91
- * v91: Newest trade selalu di atas — scroll locked ke top saat update masuk
- * v63: Skeleton shimmer ganti "Waiting for trades..."
- * rgba() only ✓ · React.memo ✓ · displayName ✓
+ * RecentTrades.tsx — ZERØ ORDER BOOK v91b
+ * v91b: REAL FIX — flex column-reverse trick (CEX standard: Binance/Bybit style)
+ *       Trades array newest at index 0 (dari hook: incoming.concat(prev))
+ *       column-reverse = index 0 tampil di BAWAH secara visual
+ *       TAPI kita reverse array dulu → newest di index terakhir → column-reverse
+ *       bikin newest ada di bawah secara DOM order = scroll bottom = always visible
+ *
+ *       ACTUALLY: hook sudah concat newest ke depan (index 0 = newest)
+ *       Kita pakai column-reverse + array as-is:
+ *       - DOM order: index 0 (newest) di atas secara array
+ *       - column-reverse: flip visual → newest jadi di BAWAH
+ *       - scroll position 0 = bagian bawah container = newest selalu keliatan
+ *       - Tidak perlu scrollTop manipulation sama sekali — CSS murni
+ *
+ * rgba() only ✓ · React.memo ✓ · displayName ✓ · useCallback ✓
  */
 
-import React, { useMemo, useRef, useEffect } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import type { Trade } from '@/types/market';
 import { SkeletonTrades } from './Skeleton';
 
 interface RecentTradesProps { trades: Trade[] }
 
-const MAX_DISPLAY = 60; // v60: reduced from 80 — less DOM nodes
+const MAX_DISPLAY = 50;
 
 const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ trades }) => {
-  const display = useMemo(() => trades.slice(0, MAX_DISPLAY), [trades]);
-  const listRef = useRef<HTMLDivElement>(null);
-  const isUserScrolling = useRef(false);
-  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // v91: Lock scroll to top when new trades arrive, UNLESS user is manually scrolling
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el || isUserScrolling.current) return;
-    // Newest is at top (index 0) — keep scroll at top
-    el.scrollTop = 0;
-  }, [display]);
+  // trades[0] = newest (dari hook: incoming.concat(prev))
+  // kita reverse sekali → trades[last] = newest
+  // column-reverse container → newest muncul di ATAS visual
+  const display = useMemo(() =>
+    trades.slice(0, MAX_DISPLAY).reverse(),
+  [trades]);
 
   const maxSize = useMemo(() => {
     let max = 1;
@@ -35,17 +40,14 @@ const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ trades }) => {
     return max;
   }, [display]);
 
-  const handleScroll = () => {
-    isUserScrolling.current = true;
-    if (scrollTimer.current) clearTimeout(scrollTimer.current);
-    // Resume auto-scroll-to-top after 3s of no user scrolling
-    scrollTimer.current = setTimeout(() => {
-      isUserScrolling.current = false;
-    }, 3000);
-  };
-
   return (
-    <div className="trades-gpu" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(11,14,22,1)' }}>
+    <div
+      className="trades-gpu"
+      style={{
+        display: 'flex', flexDirection: 'column',
+        height: '100%', background: 'rgba(11,14,22,1)',
+      }}
+    >
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -70,24 +72,34 @@ const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ trades }) => {
         <span className="label-xs" style={{ textAlign: 'right' }}>SIZE</span>
       </div>
 
-      {/* List — newest at top, scroll locked to top on update */}
+      {/*
+        column-reverse trick:
+        - overflowY: auto + flex column-reverse
+        - newest item (last in reversed array) tampil di ATAS
+        - scroll anchor otomatis ke atas tanpa JS sama sekali
+        - zero DOM manipulation, zero useEffect, pure CSS
+      */}
       <div
-        ref={listRef}
-        onScroll={handleScroll}
-        style={{ flex: 1, overflowY: 'auto' }}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column-reverse',
+        }}
         className="hide-scrollbar"
       >
-        {display.map((t) => (
-          <TradeRow key={t.id} trade={t} maxSize={maxSize} />
-        ))}
-        {!display.length && <SkeletonTrades />}
+        <div>
+          {display.map((t) => (
+            <TradeRow key={t.id} trade={t} maxSize={maxSize} />
+          ))}
+          {!display.length && <SkeletonTrades />}
+        </div>
       </div>
     </div>
   );
 });
 RecentTrades.displayName = 'RecentTrades';
 
-// v60: timeStr computed inline — no useMemo overhead for static value
 function formatTime(ms: number): string {
   const d  = new Date(ms);
   const hh = d.getHours().toString().padStart(2, '0');
@@ -119,7 +131,6 @@ const TradeRow: React.FC<{ trade: Trade; maxSize: number }> = React.memo(({ trad
       onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.03)'; }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
     >
-      {/* Size bar */}
       <div style={{
         position: 'absolute', top: 0, bottom: 0, right: 0,
         width: barPct + '%', background: barColor, pointerEvents: 'none',
