@@ -221,8 +221,7 @@ const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
       container_id:         inner.id,
       backgroundColor:      'rgba(10,13,20,1)',
       gridColor:            'rgba(255,255,255,0.03)',
-      // v91: lock chart to latest candle — no more auto-drift
-      scroll_to_realtime:   true,
+      // v92: hapus scroll_to_realtime — user bisa scroll bebas ke history
       studies:              ['Volume@tv-basicstudies'],
       overrides: {
         'mainSeriesProperties.candleStyle.upColor':            'rgba(38,166,154,1)',
