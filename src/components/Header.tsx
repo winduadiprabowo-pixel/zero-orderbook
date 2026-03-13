@@ -148,11 +148,11 @@ const Header: React.FC<HeaderProps> = React.memo(({
         minWidth: 0,
       }}>
 
-        {/* ── Logo ── */}
+        {/* ── Logo ── v93: squirrel icon sama seperti splash screen */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginRight: '14px', flexShrink: 0 }}>
-          <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '0.10em', color: 'rgba(0,185,255,0.90)' }}>
-            ZERØ
-          </span>
+          <svg width="22" height="22" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+            <path fill="white" d="M 88.67 27.13 L 82.76 21.95 L 74.88 22.87 L 69.21 29.88 L 66.5 39.02 L 60.84 34.76 L 54.43 33.23 L 51.97 24.7 L 47.78 18.9 L 47.29 4.57 L 43.1 7.32 L 38.18 14.33 L 33.5 14.63 L 28.08 17.68 L 22.17 26.52 L 19.7 39.33 L 21.92 43.9 L 26.6 47.56 L 37.68 49.39 L 36.21 63.11 L 38.42 70.73 L 31.03 73.17 L 28.82 76.83 L 28.57 80.79 L 59.85 81.4 L 67.49 76.83 L 71.92 70.73 L 74.14 64.02 L 74.63 56.1 L 72.91 47.26 L 74.88 36.59 L 79.8 31.4 L 86.21 34.76 L 88.92 34.45 L 89.9 31.4 Z"/>
+          </svg>
           <span className="header-subtitle" style={{ fontSize: '7.5px', color: 'rgba(0,185,255,0.25)', fontWeight: 600, letterSpacing: '0.12em' }}>
             ORDER BOOK
           </span>
