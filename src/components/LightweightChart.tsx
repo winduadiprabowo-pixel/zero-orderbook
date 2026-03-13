@@ -514,6 +514,7 @@ const LightweightChart = memo(function LightweightChart({
       rightPriceScale: {
         borderColor:    'rgba(255,255,255,0.05)',
         scaleMargins:   { top: 0.08, bottom: 0.20 }, // bottom 20% reserved for volume
+        minimumWidth:   58, // v92: fix mobile — price scale tidak makan area chart
       },
       timeScale: {
         borderColor:               'rgba(255,255,255,0.05)',
