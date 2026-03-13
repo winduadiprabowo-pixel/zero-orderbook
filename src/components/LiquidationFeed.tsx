@@ -16,7 +16,7 @@ interface LiquidationFeedProps {
 
 const LiquidationFeed: React.FC<LiquidationFeedProps> = React.memo(({ events, stats, wsStatus }) => {
   const statusColor =
-    wsStatus === 'connected'    ? 'rgba(38,166,154,1)'  :
+    wsStatus === 'connected'    ? 'rgba(0,205,115,1)'  :
     wsStatus === 'reconnecting' ? 'rgba(242,142,44,1)'  :
                                   'rgba(255,255,255,0.18)';
 
@@ -29,7 +29,7 @@ const LiquidationFeed: React.FC<LiquidationFeedProps> = React.memo(({ events, st
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', height: '100%',
-      background: 'rgba(16,19,28,1)',
+      background: 'rgba(11,14,22,1)',
     }}>
       {/* Header */}
       <div style={{
@@ -93,8 +93,8 @@ const LiqStatsBar: React.FC<{ stats: LiquidationStats }> = React.memo(({ stats }
     display: 'grid', gridTemplateColumns: '1fr 1fr',
     borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0,
   }}>
-    <StatsCell label="LONG LIQ"  value={formatUsdValue(stats.totalLongLiqUsd)}  color="rgba(239,83,80,1)"  borderRight />
-    <StatsCell label="SHORT LIQ" value={formatUsdValue(stats.totalShortLiqUsd)} color="rgba(38,166,154,1)" />
+    <StatsCell label="LONG LIQ"  value={formatUsdValue(stats.totalLongLiqUsd)}  color="rgba(255,60,82,1)"  borderRight />
+    <StatsCell label="SHORT LIQ" value={formatUsdValue(stats.totalShortLiqUsd)} color="rgba(0,205,115,1)" />
   </div>
 ));
 LiqStatsBar.displayName = 'LiqStatsBar';
@@ -118,8 +118,8 @@ const LiqRow: React.FC<{ event: LiquidationEvent; maxUsd: number }> = React.memo
   const isLongLiq = event.side === 'SELL';
   const color     =
     event.isWhale ? 'rgba(242,142,44,1)'  :
-    isLongLiq     ? 'rgba(239,83,80,1)'   :
-                    'rgba(38,166,154,1)';
+    isLongLiq     ? 'rgba(255,60,82,1)'   :
+                    'rgba(0,205,115,1)';
 
   const rowBg     =
     event.isWhale ? 'rgba(242,142,44,0.06)'  :
