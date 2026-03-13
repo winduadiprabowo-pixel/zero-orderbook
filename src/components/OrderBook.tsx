@@ -46,12 +46,12 @@ interface OrderBookProps {
 const ROW_H    = 22;   // FIX v83: was 18 — IBM Plex Mono 10.5px butuh min 22px
 const OVERSCAN = 3;
 
-const BID_BAR   = 'rgba(38,166,154,0.12)';
-const ASK_BAR   = 'rgba(239,83,80,0.12)';
-const BID_PRICE = 'rgba(38,166,154,1)';
-const ASK_PRICE = 'rgba(239,83,80,1)';
-const SIZE_CLR  = 'rgba(200,200,210,0.85)';
-const TOT_CLR   = 'rgba(140,140,160,0.5)';
+const BID_BAR   = 'rgba(0,205,115,0.09)';
+const ASK_BAR   = 'rgba(255,60,82,0.09)';
+const BID_PRICE = 'rgba(0,205,115,1)';
+const ASK_PRICE = 'rgba(255,60,82,1)';
+const SIZE_CLR  = 'rgba(130,148,175,0.90)';
+const TOT_CLR   = 'rgba(72,88,112,0.80)';
 
 // FIX v83: CSS grid columns — PRICE 42% | SIZE 30% | TOTAL 28%
 // Percentage-based = never overflow regardless of screen width
