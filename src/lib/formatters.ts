@@ -82,7 +82,7 @@ export function deterministicJitter(attempt: number): number {
 
 export function getReconnectDelay(attempt: number): number {
   const base = 1000 * Math.pow(2, Math.min(attempt, 5));
-  return Math.min(base + deterministicJitter(attempt), 30_000);
+  return Math.min(base + deterministicJitter(attempt), 8_000); // v95: cap 30s→8s
 }
 
 // ─── Precision helpers ────────────────────────────────────────────────────────
