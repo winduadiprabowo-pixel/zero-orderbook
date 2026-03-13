@@ -1,10 +1,11 @@
 /**
- * RecentTrades.tsx — ZERØ ORDER BOOK v63
+ * RecentTrades.tsx — ZERØ ORDER BOOK v91
+ * v91: Newest trade selalu di atas — scroll locked ke top saat update masuk
  * v63: Skeleton shimmer ganti "Waiting for trades..."
  * rgba() only ✓ · React.memo ✓ · displayName ✓
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import type { Trade } from '@/types/market';
 import { SkeletonTrades } from './Skeleton';
 
@@ -14,8 +15,18 @@ const MAX_DISPLAY = 60; // v60: reduced from 80 — less DOM nodes
 
 const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ trades }) => {
   const display = useMemo(() => trades.slice(0, MAX_DISPLAY), [trades]);
+  const listRef = useRef<HTMLDivElement>(null);
+  const isUserScrolling = useRef(false);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // v60: loop instead of Math.max(...spread) — no stack overflow risk
+  // v91: Lock scroll to top when new trades arrive, UNLESS user is manually scrolling
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || isUserScrolling.current) return;
+    // Newest is at top (index 0) — keep scroll at top
+    el.scrollTop = 0;
+  }, [display]);
+
   const maxSize = useMemo(() => {
     let max = 1;
     for (let i = 0; i < display.length; i++) {
@@ -23,6 +34,15 @@ const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ trades }) => {
     }
     return max;
   }, [display]);
+
+  const handleScroll = () => {
+    isUserScrolling.current = true;
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    // Resume auto-scroll-to-top after 3s of no user scrolling
+    scrollTimer.current = setTimeout(() => {
+      isUserScrolling.current = false;
+    }, 3000);
+  };
 
   return (
     <div className="trades-gpu" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(11,14,22,1)' }}>
@@ -50,8 +70,13 @@ const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ trades }) => {
         <span className="label-xs" style={{ textAlign: 'right' }}>SIZE</span>
       </div>
 
-      {/* List — no animation class per row */}
-      <div style={{ flex: 1, overflowY: 'auto' }} className="hide-scrollbar">
+      {/* List — newest at top, scroll locked to top on update */}
+      <div
+        ref={listRef}
+        onScroll={handleScroll}
+        style={{ flex: 1, overflowY: 'auto' }}
+        className="hide-scrollbar"
+      >
         {display.map((t) => (
           <TradeRow key={t.id} trade={t} maxSize={maxSize} />
         ))}
