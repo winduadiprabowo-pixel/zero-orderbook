@@ -204,7 +204,7 @@ async function fetchTickerRest(
   } catch { return null; }
 }
 
-const BYBIT_TIMEOUT_MS = 10_000;
+const BYBIT_TIMEOUT_MS = 3_500; // v95: 10s→3.5s, fallback ke Binance lebih cepat
 const HEARTBEAT_MS     = 20_000; // v84: 15s→20s, Bybit silent periods
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
