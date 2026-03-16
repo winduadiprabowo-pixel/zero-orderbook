@@ -211,7 +211,7 @@ const TradingViewChart: React.FC<TradingViewChartProps> = memo(({
       theme:                'dark',
       style:                '1',
       locale:               'en',
-      toolbar_bg:           '#0a0d14',
+      toolbar_bg:           'rgba(10,13,20,1)',
       enable_publishing:    false,
       hide_top_toolbar:     false,
       hide_side_toolbar:    false,   // drawing tools sidebar tampil
