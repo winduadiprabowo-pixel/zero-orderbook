@@ -1,11 +1,11 @@
 /**
- * ResizeHandle.tsx — ZERØ ORDER BOOK v43
+ * ResizeHandle.tsx — ZERØ ORDER BOOK v44
  * FIX: disabled=true on touch devices — mobile/tablet panels are NOT resizable.
  * Only desktop (hover+cursor) gets drag handles.
- * rgba() only ✓
+ * rgba() only ✓  React.memo + displayName ✓
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import { PanelResizeHandle } from 'react-resizable-panels';
 
 interface ResizeHandleProps {
@@ -13,7 +13,7 @@ interface ResizeHandleProps {
   id?: string;
 }
 
-const ResizeHandle: React.FC<ResizeHandleProps> = ({ direction = 'horizontal', id }) => {
+const ResizeHandle = memo(({ direction = 'horizontal', id }: ResizeHandleProps) => {
   const isH = direction === 'horizontal';
   // Disable on touch devices — prevents accidental panel drag on mobile/tablet
   const [isTouch, setIsTouch] = useState(false);
@@ -70,7 +70,7 @@ const ResizeHandle: React.FC<ResizeHandleProps> = ({ direction = 'horizontal', i
       `}</style>
     </PanelResizeHandle>
   );
-};
+})
 
 ResizeHandle.displayName = 'ResizeHandle';
 export default ResizeHandle;
